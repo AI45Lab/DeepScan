@@ -1,0 +1,30 @@
+# Qwen3 → MMLU evaluation configuration
+# ------------------------------------
+# This file shows how to describe a complete evaluation pipeline using
+# the ConfigLoader. Point ConfigLoader.from_file(...) at this file to
+# reproduce the Qwen3-on-MMLU example.
+
+model:
+  generation: qwen3            # which generation registry entry to use
+  model_name: Qwen3-7B         # concrete variant (change to Qwen3-32B, etc.)
+  device: cuda                 # cuda / cpu / cuda:0 ...
+  torch_dtype: float16
+  load_in_8bit: false
+
+dataset:
+  name: mmlu                   # bundled dataset family
+  subjects:
+    - astronomy
+    - philosophy
+  split: validation            # validation or test
+  return_dict: true            # handy when evaluating multiple subjects
+
+evaluator:
+  type: neuron_attribution
+  attribution_method: gradient
+  target_layers:
+    - layer_0
+    - layer_10
+    - layer_20
+  top_k: 10
+

@@ -1,0 +1,32 @@
+# Example configuration file for LLM-Diagnose Framework
+
+model:
+  name: gpt2
+  device: cuda
+  batch_size: 32
+  max_length: 512
+
+dataset:
+  name: glue_sst2
+  split: test
+  max_samples: 1000
+
+evaluator:
+  type: neuron_attribution
+  attribution_method: gradient
+  target_layers:
+    - layer_0
+    - layer_1
+    - layer_2
+  top_k: 10
+  aggregation_method: mean
+
+summarizer:
+  type: benchmark
+  format: markdown
+  benchmark: glue_sst2
+
+logging:
+  level: INFO
+  file: logs/diagnose.log
+
