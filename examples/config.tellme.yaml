@@ -1,0 +1,24 @@
+# TELLME disentanglement evaluation (filtered BeaverTails CSV)
+
+model:
+  generation: qwen3
+  model_name: Qwen3-8B
+  device: cuda
+  dtype: float16
+  load_in_8bit: false
+  path: /mnt/shared-storage-user/guojiaxuan/data/models/models--Qwen--Qwen3-8B
+
+dataset:
+  name: tellme/beaver_tails_filtered
+  # Point to the filtered CSVs provided by TELLME
+  test_path: /mnt/shared-storage-user/guojiaxuan/code/TELLME/test.csv
+  # train_path: /mnt/shared-storage-user/guojiaxuan/code/TELLME/train.csv
+  # max_rows: 400  # optional cap for quick runs (use full set to keep both classes)
+
+evaluator:
+  type: tellme
+  batch_size: 4
+  layer_ratio: 0.6666   # use 2/3 depth by default
+  token_position: -1    # use the last generated token
+
+

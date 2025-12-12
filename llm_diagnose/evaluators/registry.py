@@ -67,8 +67,14 @@ class EvaluatorRegistry(BaseRegistry[Type[BaseEvaluator]]):
         Returns:
             Evaluator instance
         """
-        evaluator_class = self.get(name)
-        return evaluator_class(*args, **kwargs)
+        evaluator_obj = self.get(name, *args, **kwargs)
+
+        # If the registry stored a factory/class, BaseRegistry.get will instantiate it.
+        # If the registry stored an instance, just return it.
+        if isinstance(evaluator_obj, BaseEvaluator):
+            return evaluator_obj
+        # Otherwise, treat it as a callable to produce an evaluator.
+        return evaluator_obj(*args, **kwargs)
 
 
 # Global evaluator registry instance

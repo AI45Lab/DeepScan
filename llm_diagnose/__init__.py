@@ -10,8 +10,17 @@ from llm_diagnose.evaluators import (
     BaseEvaluator,
     NeuronAttributionEvaluator,
     RepresentationEngineeringEvaluator,
+    TellMeEvaluator,
 )
 from llm_diagnose.summarizers import BaseSummarizer
+from llm_diagnose.models.base_runner import (
+    BaseModelRunner,
+    GenerationRequest,
+    GenerationResponse,
+    PromptMessage,
+    PromptContent,
+)
+from llm_diagnose.run import run_from_config
 
 # Auto-register supported models (Qwen, etc.)
 # This makes models available immediately without manual registration
@@ -20,7 +29,7 @@ try:
 except ImportError:  # pragma: no cover
     pass  # Models module may not be available in all installations
 
-# Auto-register supported datasets (MMLU, etc.)
+# Auto-register supported datasets (BeaverTails, TELLME, etc.)
 try:
     import llm_diagnose.datasets  # noqa: F401
 except ImportError:  # pragma: no cover
@@ -30,9 +39,16 @@ __all__ = [
     "ModelRegistry",
     "DatasetRegistry",
     "ConfigLoader",
+    "BaseModelRunner",
+    "GenerationRequest",
+    "GenerationResponse",
+    "PromptMessage",
+    "PromptContent",
     "BaseEvaluator",
     "NeuronAttributionEvaluator",
     "RepresentationEngineeringEvaluator",
+    "TellMeEvaluator",
     "BaseSummarizer",
+    "run_from_config",
 ]
 

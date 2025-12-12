@@ -5,6 +5,7 @@ A flexible and extensible framework for diagnosing Large Language Models (LLMs) 
 ## Features
 
 - **Model Registry**: Register and manage model instances and factories
+- **Model Runners**: Consistent `generate`/`chat` abstraction across model families
 - **Dataset Registry**: Register and manage dataset instances and factories
 - **Configuration Management**: Load and manage configurations from YAML/JSON files
 - **Extensible Evaluators**: Two main types of evaluators:
@@ -12,6 +13,7 @@ A flexible and extensible framework for diagnosing Large Language Models (LLMs) 
   - **Representation Engineering**: Analyze and manipulate model representations
 - **Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
 - **Plugin Architecture**: Easy to extend with custom evaluators and summarizers
+- **TELLME Metrics**: Built-in evaluator for disentanglement metrics on filtered BeaverTails
 
 ## Installation
 
@@ -27,28 +29,47 @@ pip install -e ".[dev]"
 Optional dependencies:
 
 ```bash
-pip install datasets  # required for the built-in MMLU dataset loader
+# Hugging Face dataset loaders (BeaverTails + optional raw HF loading for TELLME)
+pip install datasets
+
+# TELLME evaluator + Qwen runner dependencies
+pip install -e ".[tellme]"
+```
+
+### End-to-end from a config (any evaluator)
+```python
+from llm_diagnose import run_from_config
+
+# YAML/JSON or dict with model/dataset/evaluator sections
+results = run_from_config("examples/config.tellme.yaml")
+```
+
+CLI (no Python code needed):
+```bash
+python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs
+
+# Optional: also write a single consolidated JSON to a specific location
+python -m llm_diagnose.run --config examples/config.tellme.yaml --output results.json
 ```
 
 ## Quick Start
 
-### 1. Register Models and Datasets
+### 1. Register Models and Datasets (global registries)
 
 #### Registering Individual Models
 
 ```python
-from llm_diagnose import ModelRegistry, DatasetRegistry
+from llm_diagnose.registry.model_registry import get_model_registry
+from llm_diagnose.registry.dataset_registry import get_dataset_registry
 
-# Register a model
-model_registry = ModelRegistry()
+# IMPORTANT: use the global registries so `run_from_config()` can find your entries
+model_registry = get_model_registry()
+dataset_registry = get_dataset_registry()
 
 @model_registry.register_model("gpt2")
 def create_gpt2():
     from transformers import GPT2LMHeadModel
     return GPT2LMHeadModel.from_pretrained("gpt2")
-
-# Register a dataset
-dataset_registry = DatasetRegistry()
 
 @dataset_registry.register_dataset("glue_sst2")
 def create_sst2():
@@ -72,7 +93,7 @@ registry = get_model_registry()
     model_family="qwen",
     model_generation="qwen3",
 )
-def create_qwen3(model_name: str = "Qwen3-7B", device: str = "cuda", **kwargs):
+def create_qwen3(model_name: str = "Qwen3-8B", device: str = "cuda", **kwargs):
     """Create Qwen3 model of specified name."""
     from transformers import AutoModelForCausalLM
     
@@ -80,7 +101,7 @@ def create_qwen3(model_name: str = "Qwen3-7B", device: str = "cuda", **kwargs):
         "Qwen3-0.6B": "Qwen/Qwen3-0.6B",
         "Qwen3-1.5B": "Qwen/Qwen3-1.5B",
         "Qwen3-2B": "Qwen/Qwen3-2B",
-        "Qwen3-7B": "Qwen/Qwen3-7B",
+        "Qwen3-8B": "Qwen/Qwen3-8B",
         "Qwen3-14B": "Qwen/Qwen3-14B",
         "Qwen3-32B": "Qwen/Qwen3-32B",
     }
@@ -95,28 +116,28 @@ def create_qwen3(model_name: str = "Qwen3-7B", device: str = "cuda", **kwargs):
     )
 
 # Usage:
-model = registry.get_model("qwen3", model_name="Qwen3-7B", device="cuda")
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
 **Option 2: Register individual models with generation prefix**
 
 ```python
 @registry.register_model(
-    "qwen3/Qwen3-7B",
+    "qwen3/Qwen3-8B",
     model_family="qwen",
     model_generation="qwen3",
-    model_name="Qwen3-7B",
+    model_name="Qwen3-8B",
 )
-def create_qwen3_7b(device: str = "cuda", **kwargs):
+def create_qwen3_8b(device: str = "cuda", **kwargs):
     from transformers import AutoModelForCausalLM
     return AutoModelForCausalLM.from_pretrained(
-        "Qwen/Qwen3-7B",
+        "Qwen/Qwen3-8B",
         device_map=device,
         **kwargs
     )
 
 # Usage:
-model = registry.get_model("qwen3/Qwen3-7B", device="cuda")
+runner = registry.get_model("qwen3/Qwen3-8B", device="cuda")
 ```
 
 **Why organize by generation?** Different Qwen generations (qwen, qwen2, qwen3) may have different architectures, tokenizers, and configurations even at the same parameter count.
@@ -130,7 +151,7 @@ from llm_diagnose.registry.model_registry import get_model_registry
 
 # Models are already registered - just use them!
 registry = get_model_registry()
-model = registry.get_model("qwen3", model_name="Qwen3-7B", device="cuda")
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
 Or simply import the framework and models are ready:
@@ -140,19 +161,19 @@ import llm_diagnose  # Qwen models are auto-registered
 from llm_diagnose.registry.model_registry import get_model_registry
 
 registry = get_model_registry()
-model = registry.get_model("qwen3", model_name="Qwen3-7B", device="cuda")
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
-See `llm_diagnose/models/qwen.py` and `examples/qwen3_mmlu_evaluation.py`
-for a full evaluation pipeline.
+See `llm_diagnose/models/qwen.py` and `examples/tellme_evaluation.py`
+for an end-to-end evaluation pipeline.
 
 #### Pre-registered resources (models + datasets)
 
 The framework ships with ready-to-use registrations that are loaded automatically
 when you `import llm_diagnose`:
 
-- **Models**: Qwen, Qwen2, Qwen3 (all subject sizes, e.g., `Qwen3-32B`)
-- **Datasets**: MMLU (all 57 subjects)
+- **Models**: Qwen (qwen / qwen2 / qwen2.5 / qwen3 variants; see `llm_diagnose/models/qwen.py`)
+- **Datasets**: BeaverTails (HF dataset) and `tellme/beaver_tails_filtered` (CSV loader)
 
 ```python
 import llm_diagnose
@@ -162,12 +183,57 @@ from llm_diagnose.registry.dataset_registry import get_dataset_registry
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
 
-model = model_registry.get_model("qwen3", model_name="Qwen3-32B", device="cuda")
-dataset = dataset_registry.get_dataset("mmlu", subjects="astronomy", split="validation")
+model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+dataset = dataset_registry.get_dataset("beaver_tails", split="330k_train")
 ```
 
-> ℹ️ The built-in MMLU loader relies on Hugging Face `datasets`.  
+> ℹ️ The built-in dataset loaders rely on Hugging Face `datasets`.  
 > Install it with `pip install datasets` if you plan to use the bundled datasets.
+
+To use a copy saved via `datasets.save_to_disk`, pass a local path:
+
+```python
+dataset = dataset_registry.get_dataset(
+    "beaver_tails",
+    split="330k_train",
+    path="/path/to/BeaverTails",
+)
+```
+
+### Model Runners
+
+Model registry lookups now return a **model runner**—an object that exposes a uniform
+`generate()` interface and keeps the underlying Hugging Face model/tokenizer handy.
+
+```python
+from llm_diagnose.models.base_runner import GenerationRequest, PromptMessage, PromptContent
+from llm_diagnose.registry.model_registry import get_model_registry
+
+runner = get_model_registry().get_model(
+    "qwen3",
+    model_name="Qwen3-8B",
+    device="cuda",
+)
+
+# Quick text generation
+response = runner.generate("Explain what a registry pattern is in two sentences.")
+print(response.text)
+
+# Chat-style prompt with structured messages
+chat_request = GenerationRequest.from_messages(
+    [
+        PromptMessage(role="system", content=[PromptContent(text="You are a math tutor.")]),
+        PromptMessage(role="user", content=[PromptContent(text="Help me factor x^2 + 5x + 6.")]),
+    ],
+    temperature=0.1,
+    max_new_tokens=128,
+)
+chat_response = runner.generate(chat_request)
+print(chat_response.text)
+```
+
+Runners keep the raw model/tokenizer accessible via `runner.model` / `runner.tokenizer`
+so existing diagnostic code can still reach low-level APIs when necessary.
 
 ### 2. Load Configuration
 
@@ -179,12 +245,9 @@ config = ConfigLoader.from_file("config.yaml")
 
 # Or create from dictionary
 config = ConfigLoader.from_dict({
-    "model": "gpt2",
-    "dataset": "glue_sst2",
-    "evaluator": {
-        "attribution_method": "gradient",
-        "target_layers": ["layer_0", "layer_1"],
-    },
+    "model": {"generation": "qwen3", "model_name": "Qwen3-8B", "device": "cuda"},
+    "dataset": {"name": "beaver_tails", "split": "330k_train"},
+    "evaluator": {"type": "tellme", "batch_size": 4},
 })
 ```
 
@@ -192,6 +255,8 @@ config = ConfigLoader.from_dict({
 
 ```python
 from llm_diagnose import NeuronAttributionEvaluator
+from llm_diagnose.registry.model_registry import get_model_registry
+from llm_diagnose.registry.dataset_registry import get_dataset_registry
 
 # Create an evaluator
 evaluator = NeuronAttributionEvaluator(
@@ -200,8 +265,11 @@ evaluator = NeuronAttributionEvaluator(
 )
 
 # Get model and dataset
-model = model_registry.get_model("gpt2")
-dataset = dataset_registry.get_dataset("glue_sst2")
+model_registry = get_model_registry()
+dataset_registry = get_dataset_registry()
+
+model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+dataset = dataset_registry.get_dataset("beaver_tails", split="330k_train")
 
 # Run evaluation
 results = evaluator.evaluate(
@@ -236,11 +304,19 @@ evaluator = registry.create_evaluator("custom_attribution", attribution_method="
 ### 5. Summarize Results
 
 ```python
-from llm_diagnose import BaseSummarizer
+from llm_diagnose.summarizers.base import BaseSummarizer
 
-summarizer = BaseSummarizer(name="default")
+class SimpleSummarizer(BaseSummarizer):
+    def summarize(self, results, benchmark=None, **kwargs):
+        # Minimal example: keep a small subset of keys
+        return {
+            "benchmark": benchmark,
+            "keys": sorted(results.keys()),
+        }
 
-summary = summarizer.summarize(results, benchmark="glue_sst2")
+summarizer = SimpleSummarizer(name="simple")
+
+summary = summarizer.summarize(results, benchmark="beaver_tails")
 
 # Format as markdown
 report = summarizer.format_report(summary, format="markdown")
@@ -317,34 +393,35 @@ registry.register_summarizer("my_summarizer")(MySummarizer)
 ## Example Configuration File
 
 ```yaml
-# config.yaml
+# Minimal TELLME-style config (see `examples/config.tellme.yaml` for the full version)
 model:
-  name: gpt2
+  generation: qwen3
+  model_name: Qwen3-8B
   device: cuda
-  batch_size: 32
+  dtype: float16
+  # Optional: point to a local checkpoint dir to avoid downloads
+  # path: /path/to/models--Qwen--Qwen3-8B
 
 dataset:
-  name: glue_sst2
-  split: test
-  max_samples: 1000
+  name: tellme/beaver_tails_filtered
+  test_path: /path/to/test.csv
+  # train_path: /path/to/train.csv
+  # max_rows: 400
 
 evaluator:
-  type: neuron_attribution
-  attribution_method: gradient
-  target_layers:
-    - layer_0
-    - layer_1
-  top_k: 10
-
-summarizer:
-  type: benchmark
-  format: markdown
+  type: tellme
+  batch_size: 4
+  layer_ratio: 0.6666
+  token_position: -1
 ```
 
 ## Examples
 
 See the `examples/` directory for complete usage examples:
-- `example_usage.py`: Comprehensive examples of all framework features
+- `tellme_evaluation.py`: Run TELLME disentanglement metrics on Qwen (config-driven)
+- `config.tellme.yaml`: Ready-to-run config for TELLME
+- `config.example.yaml`: Template config (requires you to register the referenced model/dataset)
+- `QUICK_START_QWEN3.md`: Extra notes on Qwen registry usage
 
 ## Development
 

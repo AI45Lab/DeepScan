@@ -54,3 +54,9 @@ logs/
 .DS_Store
 Thumbs.db
 
+
+# Dataset
+dataset/
+
+# runs
+runs/

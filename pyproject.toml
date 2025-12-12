@@ -36,6 +36,13 @@ dev = [
     "flake8>=6.0",
     "mypy>=1.0",
 ]
+tellme = [
+    "torch",
+    "transformers",
+    "pandas",
+    "opt_einsum",
+    "tqdm",
+]
 
 [project.urls]
 Homepage = "https://github.com/yourusername/LLM-Diagnose-Framework"
