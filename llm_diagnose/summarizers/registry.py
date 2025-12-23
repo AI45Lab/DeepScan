@@ -44,10 +44,9 @@ class SummarizerRegistry(BaseRegistry[Type[BaseSummarizer]]):
         """
         def decorator(summarizer_class: Type[BaseSummarizer]) -> Type[BaseSummarizer]:
             summarizer_name = name or summarizer_class.__name__
-            self.register(
-                summarizer_name,
-                factory=lambda *args, **kwargs: summarizer_class(*args, **kwargs),
-            )
+            # Simpler convention: store the class itself as the factory.
+            # `BaseRegistry.get()` will instantiate it with *args/**kwargs.
+            self.register(summarizer_name, factory=summarizer_class)
             logger.info(f"Registered summarizer: {summarizer_name}")
             return summarizer_class
         
@@ -70,8 +69,13 @@ class SummarizerRegistry(BaseRegistry[Type[BaseSummarizer]]):
         Returns:
             Summarizer instance
         """
-        summarizer_class = self.get(name)
-        return summarizer_class(*args, **kwargs)
+        summarizer_obj = self.get(name, *args, **kwargs)
+        if not isinstance(summarizer_obj, BaseSummarizer):
+            raise TypeError(
+                f"Summarizer registry entry '{name}' did not produce a BaseSummarizer instance "
+                f"(got: {type(summarizer_obj)!r})."
+            )
+        return summarizer_obj
 
 
 # Global summarizer registry instance

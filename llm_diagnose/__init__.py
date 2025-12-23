@@ -20,7 +20,13 @@ from llm_diagnose.models.base_runner import (
     PromptMessage,
     PromptContent,
 )
-from llm_diagnose.run import run_from_config
+
+# NOTE: `python -m llm_diagnose.run` should not warn about the module being pre-imported.
+# Keep `run_from_config` available on the package, but import it lazily.
+def run_from_config(*args, **kwargs):  # type: ignore
+    from llm_diagnose.run import run_from_config as _run_from_config
+
+    return _run_from_config(*args, **kwargs)
 
 # Auto-register supported models (Qwen, etc.)
 # This makes models available immediately without manual registration

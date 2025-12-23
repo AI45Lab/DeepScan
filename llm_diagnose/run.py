@@ -8,13 +8,14 @@ from typing import Any, Dict, Optional, Union
 import argparse
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from llm_diagnose import ConfigLoader
 from llm_diagnose.registry.model_registry import get_model_registry
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
 from llm_diagnose.evaluators.registry import get_evaluator_registry
+from llm_diagnose.summarizers.registry import get_summarizer_registry
 
 
 def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> ConfigLoader:
@@ -61,6 +62,7 @@ def run_from_config(
     models_cfg = model_cfg_raw if isinstance(model_cfg_raw, list) else [model_cfg_raw]
     dataset_cfg = cfg.get("dataset", {}) or {}
     evaluator_cfg = cfg.get("evaluator", {}) or {}
+    summarizer_cfg = cfg.get("summarizer", {}) or {}
 
     if not models_cfg:
         raise ValueError("Config must provide at least one model entry.")
@@ -76,6 +78,7 @@ def run_from_config(
     model_registry = get_model_registry()
     dataset_registry = get_dataset_registry()
     evaluator_registry = get_evaluator_registry()
+    summarizer_registry = get_summarizer_registry()
 
     # Validate all models are registered
     for m_cfg in models_cfg:
@@ -90,6 +93,11 @@ def run_from_config(
     if not evaluator_registry.is_registered(evaluator_type):
         raise RuntimeError(f"Evaluator '{evaluator_type}' is not registered.")
 
+    summarizer_type = summarizer_cfg.get("type")
+    if summarizer_type:
+        if not summarizer_registry.is_registered(summarizer_type):
+            raise RuntimeError(f"Summarizer '{summarizer_type}' is not registered.")
+
     if dry_run:
         return None
 
@@ -102,7 +110,7 @@ def run_from_config(
     # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
     run_identifier = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     run_dir = resolved_output_dir / run_identifier
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -114,11 +122,12 @@ def run_from_config(
         model_kwargs = {k: v for k, v in m_cfg.items() if k not in {"generation", "model_name", "name", "run_name"}}
         model = model_registry.get_model(model_key, model_name=model_name, **model_kwargs)
 
-        raw_results = evaluator.evaluate(model, dataset)
-
         model_id = m_cfg.get("run_name") or model_name or model_key
         model_dir = run_dir / model_id
         model_dir.mkdir(parents=True, exist_ok=True)
+
+        # Provide a per-model output directory for evaluators that write artifacts (plots, metric json, etc.)
+        raw_results = evaluator.evaluate(model, dataset, output_dir=str(model_dir.resolve()))
 
         per_model_payload = {
             "run_id": run_identifier,
@@ -160,6 +169,27 @@ def run_from_config(
         "evaluator": {"type": evaluator_type, "config": evaluator_cfg},
         "models": all_models_results,
     }
+
+    # Optional summarization stage (writes `summary.json` and `summary.md` to run_dir)
+    if summarizer_type:
+        summarizer_kwargs = {k: v for k, v in summarizer_cfg.items() if k != "type"}
+        summarizer = summarizer_registry.create_summarizer(summarizer_type, config=summarizer_kwargs)
+        summary = summarizer.summarize(wrapped)
+        wrapped["summary"] = {
+            "type": summarizer_type,
+            "config": summarizer_cfg,
+            "data": summary,
+        }
+        summary_path = run_dir / "summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2, ensure_ascii=False)
+        # Best-effort markdown report
+        try:
+            report_md = summarizer.format_report(summary, format="markdown")
+            with open(run_dir / "summary.md", "w", encoding="utf-8") as f:
+                f.write(str(report_md))
+        except Exception:  # pragma: no cover
+            pass
 
     results_path = run_dir / "results.json"
     with open(results_path, "w", encoding="utf-8") as f:

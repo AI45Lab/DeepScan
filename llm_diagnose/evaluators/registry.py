@@ -44,7 +44,9 @@ class EvaluatorRegistry(BaseRegistry[Type[BaseEvaluator]]):
         """
         def decorator(evaluator_class: Type[BaseEvaluator]) -> Type[BaseEvaluator]:
             evaluator_name = name or evaluator_class.__name__
-            self.register(evaluator_name, factory=lambda *args, **kwargs: evaluator_class(*args, **kwargs))
+            # Simpler convention: store the class itself as the factory.
+            # `BaseRegistry.get()` will instantiate it with *args/**kwargs.
+            self.register(evaluator_name, factory=evaluator_class)
             logger.info(f"Registered evaluator: {evaluator_name}")
             return evaluator_class
         
@@ -68,13 +70,12 @@ class EvaluatorRegistry(BaseRegistry[Type[BaseEvaluator]]):
             Evaluator instance
         """
         evaluator_obj = self.get(name, *args, **kwargs)
-
-        # If the registry stored a factory/class, BaseRegistry.get will instantiate it.
-        # If the registry stored an instance, just return it.
-        if isinstance(evaluator_obj, BaseEvaluator):
-            return evaluator_obj
-        # Otherwise, treat it as a callable to produce an evaluator.
-        return evaluator_obj(*args, **kwargs)
+        if not isinstance(evaluator_obj, BaseEvaluator):
+            raise TypeError(
+                f"Evaluator registry entry '{name}' did not produce a BaseEvaluator instance "
+                f"(got: {type(evaluator_obj)!r})."
+            )
+        return evaluator_obj
 
 
 # Global evaluator registry instance

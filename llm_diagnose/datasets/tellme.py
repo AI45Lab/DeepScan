@@ -19,9 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
-
-import pandas as pd
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
 
@@ -30,8 +28,23 @@ logger = logging.getLogger(__name__)
 TELLME_DATASET_NAME = "tellme/beaver_tails_filtered"
 DEFAULT_HF_ID = "PKU-Alignment/BeaverTails"
 
+if TYPE_CHECKING:  # pragma: no cover
+    import pandas as pd  # type: ignore
 
-def _load_csv(path: str, max_rows: Optional[int] = None) -> pd.DataFrame:
+
+def _require_pandas():
+    try:
+        import pandas as pd  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "TELLME CSV loading requires `pandas`. Install with `pip install pandas` "
+            "(or install the framework extra: `pip install -e '.[tellme]'`)."
+        ) from exc
+    return pd
+
+
+def _load_csv(path: str, max_rows: Optional[int] = None):
+    pd = _require_pandas()
     csv_path = Path(path)
     if not csv_path.exists():
         raise FileNotFoundError(f"TELLME CSV not found at {csv_path}")
@@ -88,7 +101,7 @@ def _load_tellme_dataset(
         ds = load_dataset(hf_id, split=hf_split, cache_dir=hf_cache_dir)
         return {"raw": ds}
 
-    dataset: Dict[str, pd.DataFrame] = {"test": _load_csv(test_path, max_rows=max_rows)}
+    dataset: Dict[str, Any] = {"test": _load_csv(test_path, max_rows=max_rows)}
     if train_path:
         dataset["train"] = _load_csv(train_path, max_rows=max_rows)
 
