@@ -29,11 +29,20 @@ pip install -e ".[dev]"
 Optional dependencies:
 
 ```bash
-# Hugging Face dataset loaders (BeaverTails + optional raw HF loading for TELLME)
+# Hugging Face dataset loaders (BeaverTails + raw HF loading for TELLME/X-Boundary)
 pip install datasets
 
-# TELLME evaluator + Qwen runner dependencies
+# Qwen runner dependencies (shared by evaluators)
+pip install -e ".[qwen]"
+
+# TELLME evaluator + metrics stack
 pip install -e ".[tellme]"
+
+# X-Boundary evaluator + visualization stack
+pip install -e ".[xboundary]"
+
+# Everything (tellme + xboundary + runner deps)
+pip install -e ".[all]"
 ```
 
 ### End-to-end from a config (any evaluator)
