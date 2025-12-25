@@ -27,6 +27,8 @@ classifiers = [
 dependencies = [
     "pyyaml>=6.0",
     "datasets>=2.16.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.24",
 ]
 
 [project.optional-dependencies]

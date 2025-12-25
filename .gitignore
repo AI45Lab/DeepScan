@@ -49,6 +49,7 @@ config.local.json
 # Logs
 *.log
 logs/
+nohup.out
 
 # OS
 .DS_Store
@@ -60,3 +61,6 @@ dataset/
 
 # runs
 runs/
+
+# results
+api/results/

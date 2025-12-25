@@ -60,7 +60,11 @@ def _load_ultrachat_messages(
         try:
             # Preferred: a real `datasets.save_to_disk()` directory
             ds = load_from_disk(str(local_path))
-        except FileNotFoundError:
+        except Exception as exc_disk:  # broader than FileNotFoundError; local arrow may be incomplete
+            logger.warning(
+                "Failed to load local dataset with `load_from_disk` (%s); trying Arrow shards or HF Hub.",
+                exc_disk,
+            )
             # Common alternative: raw Arrow shards (e.g., `data-00000-of-00001.arrow`)
             arrow_files = sorted(local_path.glob("*.arrow"))
             if arrow_files:
@@ -68,12 +72,26 @@ def _load_ultrachat_messages(
                     "Local path is not a datasets save_to_disk directory; loading Arrow shards: %s",
                     ", ".join([f.name for f in arrow_files]),
                 )
-                ds = load_dataset(
-                    "arrow",
-                    data_files=[str(p) for p in arrow_files],
-                    split="train",
-                    cache_dir=hf_cache_dir,
-                )
+                try:
+                    ds = load_dataset(
+                        "arrow",
+                        data_files=[str(p) for p in arrow_files],
+                        split="train",
+                        cache_dir=hf_cache_dir,
+                    )
+                except Exception as exc_arrow:  # pragma: no cover - defensive fallback
+                    logger.warning(
+                        "Failed to load local Arrow shards (%s); falling back to HF Hub: %s (%s)",
+                        exc_arrow,
+                        hf_id,
+                        hf_split,
+                    )
+                    ds = load_dataset(
+                        hf_id,
+                        split=hf_split,
+                        cache_dir=hf_cache_dir,
+                        revision=hf_revision,
+                    )
             else:
                 logger.info("No Arrow shards found; falling back to HF Hub: %s (%s)", hf_id, hf_split)
                 ds = load_dataset(hf_id, split=hf_split, cache_dir=hf_cache_dir, revision=hf_revision)

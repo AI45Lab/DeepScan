@@ -80,10 +80,10 @@ QWEN_MODELS = {
         },
     },
     "qwen2.5": {
-        "Qwen2.5-3B-Instruct": {
-            "path": "/mnt/shared-storage-user/guojiaxuan/hf_cache/hub/models--Qwen-Qwen2.5-3B-Instruct",
-            "params": "3B",
-            "description": "Qwen2.5 3B Instruct model",
+        "Qwen2.5-7B-Instruct": {
+            "path": "/root/models/Qwen2.5-7B-Instruct",
+            "params": "7B",
+            "description": "Qwen2.5 7B Instruct model",
         },
     },
     "qwen3": {
@@ -280,7 +280,7 @@ def register_qwen_models():
             Args:
                 device: Device to load model on (default: "cuda")
                 **kwargs: Additional arguments for model loading
-                    - dtype: Data type for model weights
+                    - torch_dtype / dtype: Data type for model weights
                     - trust_remote_code: Whether to trust remote code
                     - load_in_8bit: Load in 8-bit mode
                     - load_in_4bit: Load in 4-bit mode
@@ -300,9 +300,10 @@ def register_qwen_models():
                 )
             
             # Default arguments
+            torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", "auto"))
             model_kwargs = {
                 "device_map": device,
-                "dtype": kwargs.get("dtype", "auto"),
+                "torch_dtype": torch_dtype,
                 "trust_remote_code": kwargs.get("trust_remote_code", False),
             }
             
@@ -389,8 +390,8 @@ def register_qwen_models():
                 Args:
                     model_name: Model name (e.g., "Qwen3-7B", "Qwen2-7B")
                     device: Device to load model on (default: "cuda")
-                    **kwargs: Additional arguments for model loading
-                        - dtype: Data type for model weights
+                **kwargs: Additional arguments for model loading
+                        - torch_dtype / dtype: Data type for model weights
                         - trust_remote_code: Whether to trust remote code
                         - load_in_8bit: Load in 8-bit mode
                         - load_in_4bit: Load in 4-bit mode
@@ -422,9 +423,10 @@ def register_qwen_models():
                 # Default arguments
                 generation_config = kwargs.pop("generation_config", None)
 
+                torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", "auto"))
                 model_kwargs = {
                     "device_map": device,
-                    "dtype": kwargs.get("dtype", "auto"),
+                    "torch_dtype": torch_dtype,
                     "trust_remote_code": kwargs.get("trust_remote_code", True),
                 }
                 
