@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from llm_diagnose.evaluators.base import BaseEvaluator
+from llm_diagnose.utils.progress import ProgressReporter
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ def _extract_hidden_embeddings(
     dataloader: Any,
     target_layers: List[int],
     device: Any,
+    progress: Optional[ProgressReporter] = None,
 ) -> Tuple[Dict[int, Any], Any]:
     torch_mod = _require_torch()
     np = _require_numpy()
@@ -188,6 +190,8 @@ def _extract_hidden_embeddings(
                 layer_buffers[layer_idx].append(pooled.detach().cpu().numpy())
 
             all_labels.extend(labels)
+            if progress is not None:
+                progress.update(len(labels))
 
     final: Dict[int, Any] = {}
     for layer_idx, buffers in layer_buffers.items():
@@ -318,9 +322,23 @@ class XBoundaryEvaluator(BaseEvaluator):
         target_layers = _resolve_target_layers(model.model, cfg)
         device = _infer_input_device(model.model)
 
-        layer_embeddings, labels = _extract_hidden_embeddings(
-            model=model.model, dataloader=dataloader, target_layers=target_layers, device=device
+        progress = self.progress(
+            dataset=items,
+            total=len(ds),
+            desc="X-Boundary evaluation",
+            progress_sink=kwargs.get("progress_sink"),
+            on_start=kwargs.get("on_progress_start"),
+            on_update=kwargs.get("on_progress_update"),
+            on_done=kwargs.get("on_progress_done"),
         )
+        with progress:
+            layer_embeddings, labels = _extract_hidden_embeddings(
+                model=model.model,
+                dataloader=dataloader,
+                target_layers=target_layers,
+                device=device,
+                progress=progress,
+            )
 
         metrics_by_layer: Dict[int, Any] = {}
         tsne_paths: Dict[int, Optional[str]] = {}

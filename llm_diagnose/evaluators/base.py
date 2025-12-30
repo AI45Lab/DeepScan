@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
 import logging
 
+from llm_diagnose.utils.progress import ProgressReporter, infer_total_items, progress_for_dataset
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +95,34 @@ class BaseEvaluator(ABC):
         """
         self.config.update(kwargs)
         logger.debug(f"Updated config for {self.name}: {kwargs}")
+
+    def progress(
+        self,
+        *,
+        dataset: Any = None,
+        total: Optional[int] = None,
+        desc: Optional[str] = None,
+        progress_sink: Any = None,
+        on_start: Optional[Any] = None,
+        on_update: Optional[Any] = None,
+        on_done: Optional[Any] = None,
+    ) -> ProgressReporter:
+        """
+        Create a progress reporter with best-effort dataset length inference.
+
+        This helper keeps progress reporting consistent across evaluators, and
+        will gracefully fall back to logging if tqdm is not installed.
+        """
+        inferred_total = total if total is not None else infer_total_items(dataset)
+        return progress_for_dataset(
+            dataset=dataset,
+            total=inferred_total,
+            desc=desc or f"{self.name} evaluation",
+            progress_sink=progress_sink,
+            on_start=on_start,
+            on_update=on_update,
+            on_done=on_done,
+        )
 
     def __repr__(self) -> str:
         """String representation of the evaluator."""

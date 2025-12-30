@@ -4,7 +4,7 @@ End-to-end runner that executes a diagnosis pipeline from a config file/dict.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union, Callable
 import argparse
 import json
 import logging
@@ -16,6 +16,7 @@ from llm_diagnose.registry.model_registry import get_model_registry
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
 from llm_diagnose.evaluators.registry import get_evaluator_registry
 from llm_diagnose.summarizers.registry import get_summarizer_registry
+from llm_diagnose.utils.progress import infer_total_items
 
 
 def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> ConfigLoader:
@@ -28,12 +29,85 @@ def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> Confi
     raise TypeError("config must be a path, dict, or ConfigLoader")
 
 
+class _WebhookSink:
+    """Lightweight optional webhook sink for progress callbacks."""
+
+    def __init__(self, url: str, run_id: str, timeout: float = 2.0):
+        self.url = url
+        self.run_id = run_id
+        self.timeout = timeout
+        try:
+            import requests  # type: ignore
+
+            self._requests = requests
+        except Exception:
+            self._requests = None
+            logging.warning("requests is not installed; progress webhook disabled.")
+
+    def _post(self, payload: Dict[str, Any]) -> None:
+        if self._requests is None:
+            return
+        try:
+            self._requests.post(self.url, json=payload, timeout=self.timeout)
+        except Exception:
+            logging.debug("Progress webhook post failed.", exc_info=True)
+
+    def on_start(self, total: Optional[int], desc: str) -> None:
+        # progress -> percent; completed -> absolute count
+        self._post(
+            {
+                "run_id": self.run_id,
+                "status": "start",
+                "completed": 0,
+                "total": total,
+                "desc": desc,
+                "progress": 0 if total else None,
+            }
+        )
+
+    def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
+        progress = None
+        if total:
+            try:
+                progress = float(completed) / float(total) * 100.0
+            except Exception:
+                progress = None
+        self._post(
+            {
+                "run_id": self.run_id,
+                "status": "running",
+                "completed": completed,
+                "total": total,
+                "desc": desc,
+                "progress": progress,
+            }
+        )
+
+    def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
+        progress = 100.0 if total else None
+        self._post(
+            {
+                "run_id": self.run_id,
+                "status": "done",
+                "completed": completed,
+                "total": total,
+                "desc": desc,
+                "progress": progress,
+            }
+        )
+
+
 def run_from_config(
     config: Union[str, Dict[str, Any], ConfigLoader],
     *,
     dry_run: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     run_id: Optional[str] = None,
+    progress_sink: Optional[Any] = None,
+    on_progress_start: Optional[Callable[[Optional[int], str], None]] = None,
+    on_progress_update: Optional[Callable[[int, Optional[int], str], None]] = None,
+    on_progress_done: Optional[Callable[[int, Optional[int], str], None]] = None,
+    progress_webhook: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Execute an end-to-end diagnosis based on the provided configuration.
@@ -103,6 +177,12 @@ def run_from_config(
 
     dataset_kwargs = {k: v for k, v in dataset_cfg.items() if k != "name"}
     dataset = dataset_registry.get_dataset(dataset_name, **dataset_kwargs)
+    dataset_total = infer_total_items(dataset)
+    if dataset_total is not None:
+        logging.info("Loaded dataset '%s' with %d examples", dataset_name, dataset_total)
+        _emit_update(0, dataset_total, "dataset ready")
+    else:
+        _emit_update(0, None, "dataset ready")
 
     evaluator_kwargs = {k: v for k, v in evaluator_cfg.items() if k != "type"}
     evaluator = evaluator_registry.create_evaluator(evaluator_type, config=evaluator_kwargs)
@@ -116,18 +196,63 @@ def run_from_config(
 
     all_models_results = []
 
+    # Prepare progress sink/callbacks (webhook is opt-in).
+    effective_sink = progress_sink
+    if effective_sink is None and progress_webhook:
+        effective_sink = _WebhookSink(progress_webhook, run_identifier)
+
+    # Only use explicit callbacks when provided; sink methods remain available.
+    cb_start = on_progress_start
+    cb_update = on_progress_update
+    cb_done = on_progress_done
+
+    def _safe_call(fn, *args):
+        if fn is None:
+            return
+        try:
+            fn(*args)
+        except Exception:
+            logging.debug("Progress callback failed", exc_info=True)
+
+    def _emit_start(total: Optional[int], desc: str) -> None:
+        _safe_call(cb_start, total, desc)
+        if effective_sink is not None and hasattr(effective_sink, "on_start"):
+            _safe_call(getattr(effective_sink, "on_start"), total, desc)
+
+    def _emit_update(completed: int, total: Optional[int], desc: str) -> None:
+        _safe_call(cb_update, completed, total, desc)
+        if effective_sink is not None and hasattr(effective_sink, "on_update"):
+            _safe_call(getattr(effective_sink, "on_update"), completed, total, desc)
+
+    def _emit_done(completed: int, total: Optional[int], desc: str) -> None:
+        _safe_call(cb_done, completed, total, desc)
+        if effective_sink is not None and hasattr(effective_sink, "on_done"):
+            _safe_call(getattr(effective_sink, "on_done"), completed, total, desc)
+
+    _emit_update(0, None, "preparing dataset")
     for m_cfg in models_cfg:
         model_key = m_cfg.get("generation") or m_cfg.get("name")
         model_name = m_cfg.get("model_name")
         model_kwargs = {k: v for k, v in m_cfg.items() if k not in {"generation", "model_name", "name", "run_name"}}
+        model_label = m_cfg.get("run_name") or model_name or model_key
+        _emit_update(0, None, f"loading model {model_label}")
         model = model_registry.get_model(model_key, model_name=model_name, **model_kwargs)
+        _emit_update(0, None, f"model ready {model_label}")
 
         model_id = m_cfg.get("run_name") or model_name or model_key
         model_dir = run_dir / model_id
         model_dir.mkdir(parents=True, exist_ok=True)
 
         # Provide a per-model output directory for evaluators that write artifacts (plots, metric json, etc.)
-        raw_results = evaluator.evaluate(model, dataset, output_dir=str(model_dir.resolve()))
+        raw_results = evaluator.evaluate(
+            model,
+            dataset,
+            output_dir=str(model_dir.resolve()),
+            progress_sink=effective_sink,
+            on_progress_start=cb_start,
+            on_progress_update=cb_update,
+            on_progress_done=cb_done,
+        )
 
         per_model_payload = {
             "run_id": run_identifier,
@@ -230,6 +355,11 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional run id; defaults to timestamp if not provided.",
     )
+    parser.add_argument(
+        "--progress-webhook",
+        default=None,
+        help="Optional URL to POST progress updates (run_id/status/completed/progress%).",
+    )
     return parser.parse_args()
 
 
@@ -241,6 +371,7 @@ def _cli() -> None:
         dry_run=args.dry_run,
         output_dir=args.output_dir,
         run_id=args.run_id,
+        progress_webhook=args.progress_webhook,
     )
     if results is None:
         logging.info("Dry run successful.")

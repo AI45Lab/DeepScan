@@ -31,6 +31,7 @@ API_TOKEN = os.getenv("API_KEY", "iM1b1sxY8yCYCACqA7lvHEdh1XjpKgS4")
 class EvaluationState(BaseModel):
     run_id: str
     status: str  # pending | running | completed | failed
+    diagnosis: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     result: Optional[Dict[str, Any]] = None
@@ -38,6 +39,23 @@ class EvaluationState(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+
+
+class EvaluationCreateRequest(BaseModel):
+    """
+    Request body for creating an evaluation.
+
+    Clients send `job_id`; we map it to internal `run_id`. For backward
+    compatibility we still honor `run_id` if provided.
+    """
+
+    job_id: Optional[str] = None
+    run_id: Optional[str] = None
+    diagnosis: Optional[str] = None
+
+    def resolved_run_id(self, query_job_id: Optional[str] = None) -> str:
+        # Prefer job_id from query, then body.job_id, then run_id, else empty string.
+        return (query_job_id or self.job_id or self.run_id or "").strip()
 
 
 app = FastAPI(title="LLM-Diagnose Test API", version="0.1.0")
@@ -121,13 +139,28 @@ def _require_api_key(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 @app.post("/evaluations", status_code=status.HTTP_202_ACCEPTED, response_model=EvaluationState)
 async def create_evaluation(
+    body: EvaluationCreateRequest,
+    job_id: Optional[str] = None,
     _: None = Depends(_require_api_key),
 ) -> EvaluationState:
     """
     Create a new evaluation run. Always returns immediately (202 Accepted).
+
+    `job_id` is now expected as a query parameter; the request body can carry
+    an optional `diagnosis` and a legacy `run_id`.
     """
-    run_id = str(uuid.uuid4())
-    state = EvaluationState(run_id=run_id, status="pending")
+    # Allow client to provide job_id (preferred) or run_id; generate one when empty.
+    requested_run_id = body.resolved_run_id(job_id)
+    run_id = requested_run_id or str(uuid.uuid4())
+
+    async with _jobs_lock:
+        if run_id in _runs:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Run id already exists",
+            )
+
+    state = EvaluationState(run_id=run_id, status="pending", diagnosis=body.diagnosis)
 
     async with _jobs_lock:
         _runs[run_id] = state

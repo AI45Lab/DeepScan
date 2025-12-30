@@ -18,7 +18,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import torch
 import torch.nn.functional as F
 from opt_einsum import contract
-from tqdm import tqdm
 
 from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
@@ -218,6 +217,10 @@ class TellMeEvaluator(BaseEvaluator):
             batch_size=cfg.batch_size,
             token_position=cfg.token_position,
             prompt_suffix=cfg.prompt_suffix_test,
+            progress_sink=kwargs.get("progress_sink"),
+            on_progress_start=kwargs.get("on_progress_start"),
+            on_progress_update=kwargs.get("on_progress_update"),
+            on_progress_done=kwargs.get("on_progress_done"),
         )
 
         labels = torch.tensor(test_df["is_safe"].astype(int).tolist(), dtype=torch.long)
@@ -277,6 +280,10 @@ class TellMeEvaluator(BaseEvaluator):
         batch_size: int,
         token_position: int,
         prompt_suffix: str,
+        progress_sink: Any = None,
+        on_progress_start: Any = None,
+        on_progress_update: Any = None,
+        on_progress_done: Any = None,
     ) -> torch.Tensor:
         if tokenizer is None:
             raise RuntimeError("TellMeEvaluator requires a tokenizer on the model runner.")
@@ -285,20 +292,31 @@ class TellMeEvaluator(BaseEvaluator):
         layer_module = self._get_layer_module(model, layer_index)
         handle = layer_module.register_forward_hook(hook)
         device = getattr(model, "device", "cpu")
+        progress = self.progress(
+            dataset=prompts,
+            total=len(prompts),
+            desc="TELLME embeddings",
+            progress_sink=progress_sink,
+            on_start=on_progress_start,
+            on_update=on_progress_update,
+            on_done=on_progress_done,
+        )
 
         try:
-            for i in tqdm(range(0, len(prompts), batch_size), desc="TELLME embeddings"):
-                batch_prompts = self._build_chat_batch(
-                    tokenizer,
-                    prompts.iloc[i : i + batch_size],
-                    prompt_suffix=prompt_suffix,
-                )
-                inputs = tokenizer(
-                    batch_prompts, return_tensors="pt", padding=True, truncation=True
-                )
-                inputs = {k: v.to(device) for k, v in inputs.items()}
-                with torch.no_grad():
-                    _ = model.model(**inputs) if hasattr(model, "model") else model(**inputs)
+            with progress:
+                for i in range(0, len(prompts), batch_size):
+                    batch_prompts = self._build_chat_batch(
+                        tokenizer,
+                        prompts.iloc[i : i + batch_size],
+                        prompt_suffix=prompt_suffix,
+                    )
+                    inputs = tokenizer(
+                        batch_prompts, return_tensors="pt", padding=True, truncation=True
+                    )
+                    inputs = {k: v.to(device) for k, v in inputs.items()}
+                    with torch.no_grad():
+                        _ = model.model(**inputs) if hasattr(model, "model") else model(**inputs)
+                    progress.update(len(batch_prompts))
         finally:
             handle.remove()
 

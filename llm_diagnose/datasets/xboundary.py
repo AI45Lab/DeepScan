@@ -79,10 +79,10 @@ def _load_ultrachat_messages(
                         split="train",
                         cache_dir=hf_cache_dir,
                     )
-                except Exception as exc_arrow:  # pragma: no cover - defensive fallback
+                except Exception as exc:  # pragma: no cover - defensive fallback
                     logger.warning(
                         "Failed to load local Arrow shards (%s); falling back to HF Hub: %s (%s)",
-                        exc_arrow,
+                        exc,
                         hf_id,
                         hf_split,
                     )
