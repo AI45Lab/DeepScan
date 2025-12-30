@@ -26,7 +26,7 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 ## 接口
 
 - `GET /health`：存活探针。
-- `POST /evaluations`：创建一个诊断任务，立即返回 `run_id`（状态 202）。
+- `POST /evaluations`：创建一个诊断任务，立即返回 `run_id`（状态 202）。请求体可选字段 `job_id`（兼容旧字段 `run_id`），若不提供或为空则自动生成。
 - `GET /evaluations/{run_id}`：根据 `run_id` 查询任务状态/结果，若在运行会等待完成。
 - `GET /evaluations`：仅返回当前内存中的 `run_id` 列表。
 - `GET /runs/{run_id}`：`/evaluations/{run_id}` 的别名。
@@ -35,7 +35,10 @@ uvicorn api.main:app --host 0.0.0.0 --port 8000
 
 1) 发起任务（始终异步返回）：
 ```bash
-curl -X POST http://localhost:8000/evaluations
+curl -X POST http://localhost:8000/evaluations \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"job_id": ""}'    # job_id 可省略/留空，服务端会自动生成
 # 返回: {"run_id":"<uuid>","status":"pending",...}
 ```
 
