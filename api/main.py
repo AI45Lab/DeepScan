@@ -11,7 +11,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -22,6 +22,9 @@ DEFAULT_CONFIG_PATH = Path(
         "DIAGNOSE_CONFIG",
         Path(__file__).resolve().parents[1] / "examples" / "config.xboundary-qwen2.5-7b-instruct.yaml",
     )
+)
+DEFAULT_WEBHOOK_CONFIG_PATH = Path(
+    os.getenv("DIAGNOSE_WEBHOOK_CONFIG", Path(__file__).resolve().parent / "webhook.yaml")
 )
 DEFAULT_DRY_RUN = os.getenv("DIAGNOSE_DRY_RUN", "false").lower() == "true"
 DEFAULT_OUTPUT_DIR = Path(os.getenv("DIAGNOSE_OUTPUT_DIR", "results"))
@@ -87,6 +90,9 @@ async def _execute_run(run_id: str) -> None:
 
     try:
         cfg = _get_config_loader()
+        webhook_cfg_path: Optional[str] = None
+        if DEFAULT_WEBHOOK_CONFIG_PATH.exists():
+            webhook_cfg_path = str(DEFAULT_WEBHOOK_CONFIG_PATH)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             None,
@@ -96,6 +102,7 @@ async def _execute_run(run_id: str) -> None:
                 dry_run=DEFAULT_DRY_RUN,
                 output_dir=str(DEFAULT_OUTPUT_DIR),
                 run_id=run_id,
+                webhook_config=webhook_cfg_path,
             ),
         )
 
@@ -140,18 +147,24 @@ def _require_api_key(credentials: HTTPAuthorizationCredentials = Depends(securit
 @app.post("/evaluations", status_code=status.HTTP_202_ACCEPTED, response_model=EvaluationState)
 async def create_evaluation(
     body: EvaluationCreateRequest,
-    job_id: Optional[str] = None,
+    job_id: Optional[str] = Query(None, alias="jobId"),
     _: None = Depends(_require_api_key),
 ) -> EvaluationState:
     """
     Create a new evaluation run. Always returns immediately (202 Accepted).
 
-    `job_id` is now expected as a query parameter; the request body can carry
-    an optional `diagnosis` and a legacy `run_id`.
+    `jobId` is expected as a query parameter (?jobId=...). The request body can
+    carry an optional diagnosis and a legacy run_id for backward compatibility.
     """
-    # Allow client to provide job_id (preferred) or run_id; generate one when empty.
+    # Prefer query param `jobId`; fall back to body fields for backward compatibility.
     requested_run_id = body.resolved_run_id(job_id)
-    run_id = requested_run_id or str(uuid.uuid4())
+    run_id = requested_run_id
+
+    if not run_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="jobId is required (as query param) or provide run_id/job_id in body for compatibility.",
+        )
 
     async with _jobs_lock:
         if run_id in _runs:

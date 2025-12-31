@@ -9,7 +9,7 @@ model:
 dataset:
   name: xboundary/diagnostic
   # Point this at your X-Boundary `data/` folder
-  data_dir: /mnt/shared-storage-user/guojiaxuan/code/X-Boundary/data
+  data_dir: /mnt/shared-storage-user/guojiaxuan/data/datasets
   num_samples_per_class: 200
 
 evaluator:

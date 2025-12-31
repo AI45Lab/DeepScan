@@ -10,6 +10,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from llm_diagnose import ConfigLoader
 from llm_diagnose.registry.model_registry import get_model_registry
@@ -29,11 +30,39 @@ def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> Confi
     raise TypeError("config must be a path, dict, or ConfigLoader")
 
 
+def _as_optional_config_dict(config: Optional[Union[str, Dict[str, Any], ConfigLoader]]) -> Dict[str, Any]:
+    """Load optional config-like input into a plain dict; returns {} when absent."""
+    if config is None:
+        return {}
+    if isinstance(config, dict):
+        return config
+    if isinstance(config, ConfigLoader):
+        return config.to_dict()
+    if isinstance(config, str):
+        try:
+            return ConfigLoader.from_file(config).to_dict()
+        except Exception:
+            logging.warning("Failed to load webhook config from %s", config, exc_info=True)
+            return {}
+    logging.warning("Unsupported webhook config type: %s", type(config))
+    return {}
+
+
 class _WebhookSink:
     """Lightweight optional webhook sink for progress callbacks."""
 
-    def __init__(self, url: str, run_id: str, timeout: float = 2.0):
-        self.url = url
+    def __init__(
+        self,
+        url: str,
+        run_id: str,
+        timeout: float = 2.0,
+        result_url: Optional[str] = None,
+        append_run_id_query: bool = True,
+    ):
+        self.progress_url = self._with_run_id(url, run_id) if append_run_id_query else url
+        self.result_url = (
+            self._with_run_id(result_url, run_id) if (result_url and append_run_id_query) else result_url
+        )
         self.run_id = run_id
         self.timeout = timeout
         try:
@@ -44,57 +73,66 @@ class _WebhookSink:
             self._requests = None
             logging.warning("requests is not installed; progress webhook disabled.")
 
-    def _post(self, payload: Dict[str, Any]) -> None:
-        if self._requests is None:
+    def _with_run_id(self, base_url: Optional[str], run_id: str) -> Optional[str]:
+        """
+        Append ?_id=<run_id> to the provided URL when not already present.
+        Falls back gracefully if parsing fails.
+        """
+        if not base_url:
+            return None
+        try:
+            parsed = urlsplit(base_url)
+            query_pairs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            if run_id and "_id" not in query_pairs:
+                query_pairs["_id"] = run_id
+            query = urlencode(query_pairs)
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+        except Exception:
+            # Basic fallback keeps original URL and simply appends the query string.
+            suffix = f"?_id={run_id}" if run_id else ""
+            return f"{base_url}{suffix}"
+
+    def _post_json(self, url: Optional[str], payload: Dict[str, Any]) -> None:
+        if self._requests is None or not url:
             return
         try:
-            self._requests.post(self.url, json=payload, timeout=self.timeout)
+            self._requests.post(url, json=payload, timeout=self.timeout)
         except Exception:
-            logging.debug("Progress webhook post failed.", exc_info=True)
+            logging.debug("Webhook post failed.", exc_info=True)
+
+    def _post_progress(self, *, status: str, progress: Optional[float], pass_rate: Optional[float] = None) -> None:
+        payload: Dict[str, Any] = {"status": status, "run_id": self.run_id}
+        if progress is not None:
+            payload["progress"] = progress
+        if pass_rate is not None:
+            payload["passRate"] = pass_rate
+        self._post_json(self.progress_url, payload)
+
+    @staticmethod
+    def _percent(completed: int, total: Optional[int]) -> Optional[float]:
+        if not total:
+            return None
+        try:
+            return round(float(completed) / float(total) * 100.0, 2)
+        except Exception:
+            return None
 
     def on_start(self, total: Optional[int], desc: str) -> None:
-        # progress -> percent; completed -> absolute count
-        self._post(
-            {
-                "run_id": self.run_id,
-                "status": "start",
-                "completed": 0,
-                "total": total,
-                "desc": desc,
-                "progress": 0 if total else None,
-            }
-        )
+        progress = 0 if total else None
+        self._post_progress(status="running", progress=progress)
 
     def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
-        progress = None
-        if total:
-            try:
-                progress = float(completed) / float(total) * 100.0
-            except Exception:
-                progress = None
-        self._post(
-            {
-                "run_id": self.run_id,
-                "status": "running",
-                "completed": completed,
-                "total": total,
-                "desc": desc,
-                "progress": progress,
-            }
-        )
+        progress = self._percent(completed, total)
+        self._post_progress(status="running", progress=progress)
 
     def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
         progress = 100.0 if total else None
-        self._post(
-            {
-                "run_id": self.run_id,
-                "status": "done",
-                "completed": completed,
-                "total": total,
-                "desc": desc,
-                "progress": progress,
-            }
-        )
+        self._post_progress(status="complete", progress=progress)
+
+    def on_result(self, result: Dict[str, Any]) -> None:
+        """Send final result payload to a (possibly different) endpoint."""
+        payload = {"status": "complete", "run_id": self.run_id, "result": result}
+        self._post_json(self.result_url or self.progress_url, payload)
 
 
 def run_from_config(
@@ -108,6 +146,9 @@ def run_from_config(
     on_progress_update: Optional[Callable[[int, Optional[int], str], None]] = None,
     on_progress_done: Optional[Callable[[int, Optional[int], str], None]] = None,
     progress_webhook: Optional[str] = None,
+    result_webhook: Optional[str] = None,
+    webhook_config: Optional[Union[str, Dict[str, Any], ConfigLoader]] = None,
+    append_run_id_query: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Execute an end-to-end diagnosis based on the provided configuration.
@@ -132,6 +173,13 @@ def run_from_config(
         Evaluation results dictionary (or None for dry_run).
     """
     cfg = _as_config_loader(config)
+    webhook_cfg = _as_optional_config_dict(webhook_config)
+    cfg_progress_webhook = cfg.get("progress_webhook")
+    cfg_result_webhook = cfg.get("result_webhook")
+    cfg_append_run_id_query = cfg.get("append_run_id_query")
+    wh_progress_webhook = webhook_cfg.get("progress_webhook")
+    wh_result_webhook = webhook_cfg.get("result_webhook")
+    wh_append_run_id_query = webhook_cfg.get("append_run_id_query")
     model_cfg_raw = cfg.get("model", {}) or {}
     models_cfg = model_cfg_raw if isinstance(model_cfg_raw, list) else [model_cfg_raw]
     dataset_cfg = cfg.get("dataset", {}) or {}
@@ -189,7 +237,34 @@ def run_from_config(
 
     # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
-    run_identifier = run_id or datetime.now().strftime("%Y%m%d-%H%M%S")
+    resolved_progress_webhook = progress_webhook or wh_progress_webhook or cfg_progress_webhook
+    resolved_result_webhook = result_webhook or wh_result_webhook or cfg_result_webhook
+    resolved_append_run_id_query = (
+        append_run_id_query
+        if append_run_id_query is not None
+        else (wh_append_run_id_query if wh_append_run_id_query is not None else cfg_append_run_id_query)
+    )
+    if resolved_append_run_id_query is None:
+        resolved_append_run_id_query = True
+
+    def _extract_id_from_url(url: Optional[str]) -> Optional[str]:
+        if not url:
+            return None
+        try:
+            parsed = urlsplit(url)
+            query_pairs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            return query_pairs.get("_id")
+        except Exception:
+            return None
+
+    inferred_run_id = _extract_id_from_url(resolved_progress_webhook) or _extract_id_from_url(
+        resolved_result_webhook
+    )
+    run_identifier = run_id or inferred_run_id
+    if not run_identifier:
+        raise ValueError(
+            "A run/job id is required. Provide --run-id or include `_id=<job_id>` in the progress/result webhook URL."
+        )
     timestamp = datetime.now(timezone.utc).isoformat()
     run_dir = resolved_output_dir / run_identifier
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -198,8 +273,13 @@ def run_from_config(
 
     # Prepare progress sink/callbacks (webhook is opt-in).
     effective_sink = progress_sink
-    if effective_sink is None and progress_webhook:
-        effective_sink = _WebhookSink(progress_webhook, run_identifier)
+    if effective_sink is None and resolved_progress_webhook:
+        effective_sink = _WebhookSink(
+            resolved_progress_webhook,
+            run_identifier,
+            result_url=resolved_result_webhook,
+            append_run_id_query=resolved_append_run_id_query,
+        )
 
     # Only use explicit callbacks when provided; sink methods remain available.
     cb_start = on_progress_start
@@ -325,6 +405,10 @@ def run_from_config(
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(cfg.to_dict(), f, indent=2, ensure_ascii=False)
 
+    # Final webhook for results if enabled (allows distinct endpoint from progress).
+    if effective_sink is not None and hasattr(effective_sink, "on_result"):
+        _safe_call(getattr(effective_sink, "on_result"), wrapped)
+
     return wrapped
 
 
@@ -353,12 +437,22 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-id",
         default=None,
-        help="Optional run id; defaults to timestamp if not provided.",
+        help="Required unless webhook URL already contains _id=<job_id>; used to tag webhook posts.",
     )
     parser.add_argument(
         "--progress-webhook",
         default=None,
-        help="Optional URL to POST progress updates (run_id/status/completed/progress%).",
+        help="Optional URL to POST progress updates (appends ?_id=<run_id> and sends status/progress JSON).",
+    )
+    parser.add_argument(
+        "--result-webhook",
+        default=None,
+        help="Optional URL to POST final result payload (appends ?_id=<run_id>). Defaults to progress webhook when omitted.",
+    )
+    parser.add_argument(
+        "--webhook-config",
+        default=None,
+        help="Optional separate YAML/JSON config for webhook settings (progress_webhook, result_webhook, run_id).",
     )
     return parser.parse_args()
 
@@ -372,6 +466,8 @@ def _cli() -> None:
         output_dir=args.output_dir,
         run_id=args.run_id,
         progress_webhook=args.progress_webhook,
+        result_webhook=args.result_webhook,
+        webhook_config=args.webhook_config,
     )
     if results is None:
         logging.info("Dry run successful.")

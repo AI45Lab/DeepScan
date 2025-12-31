@@ -1,0 +1,7 @@
+# progress_webhook: http://101.126.156.90:55812/api/internal/job/
+# result_webhook: http://101.126.156.90:55812/api/internal/job/result
+
+progress_webhook: http://100.104.39.57:55812/api/internal/job/
+result_webhook: http://100.104.39.57:55812/api/internal/job/result
+append_run_id_query: true
+
