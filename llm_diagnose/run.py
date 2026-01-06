@@ -5,6 +5,7 @@ End-to-end runner that executes a diagnosis pipeline from a config file/dict.
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Union, Callable
+import math
 import argparse
 import json
 import logging
@@ -75,28 +76,29 @@ class _WebhookSink:
 
     def _with_run_id(self, base_url: Optional[str], run_id: str) -> Optional[str]:
         """
-        Append ?_id=<run_id> to the provided URL when not already present.
-        Falls back gracefully if parsing fails.
+        Ensure webhook URLs carry run id markers.
+        - Add/overwrite both `jobId` and `_id` to support receivers expecting either.
         """
         if not base_url:
             return None
         try:
             parsed = urlsplit(base_url)
             query_pairs = dict(parse_qsl(parsed.query, keep_blank_values=True))
-            if run_id and "_id" not in query_pairs:
+            if run_id:
+                query_pairs["jobId"] = run_id
                 query_pairs["_id"] = run_id
             query = urlencode(query_pairs)
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
         except Exception:
             # Basic fallback keeps original URL and simply appends the query string.
-            suffix = f"?_id={run_id}" if run_id else ""
+            suffix = f"?jobId={run_id}&_id={run_id}" if run_id else ""
             return f"{base_url}{suffix}"
 
-    def _post_json(self, url: Optional[str], payload: Dict[str, Any]) -> None:
+    def _send_json(self, url: Optional[str], payload: Dict[str, Any], method: str = "post") -> None:
         if self._requests is None or not url:
             return
         try:
-            self._requests.post(url, json=payload, timeout=self.timeout)
+            self._requests.request(method=method, url=url, json=payload, timeout=self.timeout)
         except Exception:
             logging.debug("Webhook post failed.", exc_info=True)
 
@@ -106,7 +108,54 @@ class _WebhookSink:
             payload["progress"] = progress
         if pass_rate is not None:
             payload["passRate"] = pass_rate
-        self._post_json(self.progress_url, payload)
+        self._send_json(self.progress_url, payload, method="post")
+
+    def _format_xboundary_report(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Flatten X-Boundary metrics into a simple webhook payload.
+        The downstream consumer expects:
+          {
+            jobId: <run_id>,
+            passRate: 33,
+            risk: 1,
+            result: {<flat metrics>}
+          }
+        """
+        evaluator_type = (result.get("evaluator") or {}).get("type")
+        if evaluator_type != "xboundary":
+            return None
+
+        def _to_int(val: Any) -> Any:
+            if isinstance(val, (int, float)):
+                try:
+                    if math.isnan(val) or math.isinf(val):  # type: ignore[arg-type]
+                        return val
+                except Exception:
+                    pass
+                return int(round(val))
+            return val
+
+        flat_metrics: Dict[str, Any] = {}
+        models = result.get("models") or []
+        for model_entry in models:
+            raw_results = model_entry.get("results") or {}
+            per_layer = (raw_results.get("metrics") or {}).get("per_layer") or raw_results.get("metrics_by_layer") or {}
+            for layer_key, layer_metrics in per_layer.items():
+                prefix = f"layer_{layer_key}"
+                if isinstance(layer_metrics, dict):
+                    for metric_name, metric_value in layer_metrics.items():
+                        # Convert ratio metrics to percentage points for downstream consumer.
+                        if metric_name == "boundary_ratio" and isinstance(metric_value, (int, float)):
+                            metric_value = metric_value * 100.0
+                        if metric_name == "details" and isinstance(metric_value, dict):
+                            for detail_name, detail_value in metric_value.items():
+                                flat_metrics[f"{prefix}_{detail_name}"] = _to_int(detail_value)
+                        else:
+                            flat_metrics[f"{prefix}_{metric_name}"] = _to_int(metric_value)
+                else:
+                    flat_metrics[prefix] = _to_int(layer_metrics)
+
+        return {"jobId": str(self.run_id), "passRate": 33, "risk": 1, "result": flat_metrics}
 
     @staticmethod
     def _percent(completed: int, total: Optional[int]) -> Optional[float]:
@@ -131,8 +180,94 @@ class _WebhookSink:
 
     def on_result(self, result: Dict[str, Any]) -> None:
         """Send final result payload to a (possibly different) endpoint."""
-        payload = {"status": "complete", "run_id": self.run_id, "result": result}
-        self._post_json(self.result_url or self.progress_url, payload)
+        payload = self._format_xboundary_report(result) or {"status": "complete", "run_id": self.run_id, "result": result}
+        # Result webhook requires PUT (per consumer contract); fall back to progress URL when result URL missing.
+        self._send_json(self.result_url or self.progress_url, payload, method="put")
+
+
+class _PipelineProgressAdapter:
+    """
+    Wrap a progress sink so that:
+    - Model loading contributes a fixed portion of progress.
+    - Evaluation samples consume the remaining portion.
+    - Total progress always sums to 100.
+    """
+
+    def __init__(self, sink: Any, *, load_fraction: float = 0.1, total_units: int = 100):
+        self._sink = sink
+        self.total_units = int(total_units)
+        self.load_units = int(round(self.total_units * max(0.0, min(load_fraction, 1.0))))
+        self.pre_load_units = min(self.load_units, max(0, int(round(self.load_units * 0.5))))
+        self.eval_units = max(0, self.total_units - self.load_units)
+        self._eval_total: Optional[float] = None
+        self._preload_emitted = False
+        self._load_emitted = False
+
+    def set_eval_total(self, total: Optional[int]) -> None:
+        if isinstance(total, (int, float)) and total > 0:
+            self._eval_total = float(total)
+
+    def _scaled_completed(self, completed: int) -> Optional[int]:
+        if self._eval_total is None or self._eval_total <= 0 or self.eval_units == 0:
+            return None
+        bounded = min(max(float(completed), 0.0), self._eval_total)
+        if self._load_emitted:
+            base = self.load_units
+        elif self._preload_emitted:
+            base = self.pre_load_units
+        else:
+            base = 0
+        scaled = base + self.eval_units * (bounded / self._eval_total)
+        return int(round(scaled))
+
+    def _call_sink(self, method: str, *args: Any) -> None:
+        if self._sink is None:
+            return
+        fn = getattr(self._sink, method, None)
+        if fn is None:
+            return
+        try:
+            fn(*args)
+        except Exception:
+            logging.debug("Progress sink call failed", exc_info=True)
+
+    def mark_model_preload(self, desc: str) -> None:
+        if self._preload_emitted or self.pre_load_units == 0:
+            return
+        self._preload_emitted = True
+        self._call_sink("on_update", self.pre_load_units, self.total_units, desc)
+
+    def mark_model_loaded(self, desc: str) -> None:
+        if self.load_units == 0:
+            return
+        if not self._preload_emitted and self.pre_load_units > 0:
+            self.mark_model_preload(desc)
+        if self._load_emitted:
+            return
+        self._load_emitted = True
+        self._call_sink("on_update", self.load_units, self.total_units, desc)
+
+    def on_start(self, total: Optional[int], desc: str) -> None:
+        self.set_eval_total(total)
+        self._call_sink("on_start", self.total_units, desc)
+        # If model load already advanced progress, re-emit it so sinks don't
+        # reset to 0 when evaluation starts.
+        if self._load_emitted and self.load_units > 0:
+            self._call_sink("on_update", self.load_units, self.total_units, desc)
+
+    def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
+        self.set_eval_total(total)
+        scaled = self._scaled_completed(completed)
+        if scaled is None:
+            self._call_sink("on_update", completed, total, desc)
+        else:
+            self._call_sink("on_update", scaled, self.total_units, desc)
+
+    def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
+        self._call_sink("on_done", self.total_units, self.total_units, desc)
+
+    def on_result(self, result: Dict[str, Any]) -> None:
+        self._call_sink("on_result", result)
 
 
 def run_from_config(
@@ -223,18 +358,6 @@ def run_from_config(
     if dry_run:
         return None
 
-    dataset_kwargs = {k: v for k, v in dataset_cfg.items() if k != "name"}
-    dataset = dataset_registry.get_dataset(dataset_name, **dataset_kwargs)
-    dataset_total = infer_total_items(dataset)
-    if dataset_total is not None:
-        logging.info("Loaded dataset '%s' with %d examples", dataset_name, dataset_total)
-        _emit_update(0, dataset_total, "dataset ready")
-    else:
-        _emit_update(0, None, "dataset ready")
-
-    evaluator_kwargs = {k: v for k, v in evaluator_cfg.items() if k != "type"}
-    evaluator = evaluator_registry.create_evaluator(evaluator_type, config=evaluator_kwargs)
-
     # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
     resolved_progress_webhook = progress_webhook or wh_progress_webhook or cfg_progress_webhook
@@ -280,6 +403,8 @@ def run_from_config(
             result_url=resolved_result_webhook,
             append_run_id_query=resolved_append_run_id_query,
         )
+    progress_adapter = _PipelineProgressAdapter(effective_sink) if effective_sink is not None else None
+    sink_for_callbacks = progress_adapter or effective_sink
 
     # Only use explicit callbacks when provided; sink methods remain available.
     cb_start = on_progress_start
@@ -296,27 +421,48 @@ def run_from_config(
 
     def _emit_start(total: Optional[int], desc: str) -> None:
         _safe_call(cb_start, total, desc)
-        if effective_sink is not None and hasattr(effective_sink, "on_start"):
-            _safe_call(getattr(effective_sink, "on_start"), total, desc)
+        target_sink = sink_for_callbacks
+        if target_sink is not None and hasattr(target_sink, "on_start"):
+            _safe_call(getattr(target_sink, "on_start"), total, desc)
 
     def _emit_update(completed: int, total: Optional[int], desc: str) -> None:
         _safe_call(cb_update, completed, total, desc)
-        if effective_sink is not None and hasattr(effective_sink, "on_update"):
-            _safe_call(getattr(effective_sink, "on_update"), completed, total, desc)
+        target_sink = sink_for_callbacks
+        if target_sink is not None and hasattr(target_sink, "on_update"):
+            _safe_call(getattr(target_sink, "on_update"), completed, total, desc)
 
     def _emit_done(completed: int, total: Optional[int], desc: str) -> None:
         _safe_call(cb_done, completed, total, desc)
-        if effective_sink is not None and hasattr(effective_sink, "on_done"):
-            _safe_call(getattr(effective_sink, "on_done"), completed, total, desc)
+        target_sink = sink_for_callbacks
+        if target_sink is not None and hasattr(target_sink, "on_done"):
+            _safe_call(getattr(target_sink, "on_done"), completed, total, desc)
 
     _emit_update(0, None, "preparing dataset")
+
+    dataset_kwargs = {k: v for k, v in dataset_cfg.items() if k != "name"}
+    dataset = dataset_registry.get_dataset(dataset_name, **dataset_kwargs)
+    dataset_total = infer_total_items(dataset)
+    if progress_adapter is not None:
+        progress_adapter.set_eval_total(dataset_total)
+    if dataset_total is not None:
+        logging.info("Loaded dataset '%s' with %d examples", dataset_name, dataset_total)
+        _emit_update(0, dataset_total, "dataset ready")
+    else:
+        _emit_update(0, None, "dataset ready")
+
+    evaluator_kwargs = {k: v for k, v in evaluator_cfg.items() if k != "type"}
+    evaluator = evaluator_registry.create_evaluator(evaluator_type, config=evaluator_kwargs)
     for m_cfg in models_cfg:
         model_key = m_cfg.get("generation") or m_cfg.get("name")
         model_name = m_cfg.get("model_name")
         model_kwargs = {k: v for k, v in m_cfg.items() if k not in {"generation", "model_name", "name", "run_name"}}
         model_label = m_cfg.get("run_name") or model_name or model_key
+        if progress_adapter is not None:
+            progress_adapter.mark_model_preload(f"loading model {model_label}")
         _emit_update(0, None, f"loading model {model_label}")
         model = model_registry.get_model(model_key, model_name=model_name, **model_kwargs)
+        if progress_adapter is not None:
+            progress_adapter.mark_model_loaded(f"model ready {model_label}")
         _emit_update(0, None, f"model ready {model_label}")
 
         model_id = m_cfg.get("run_name") or model_name or model_key
@@ -328,7 +474,7 @@ def run_from_config(
             model,
             dataset,
             output_dir=str(model_dir.resolve()),
-            progress_sink=effective_sink,
+            progress_sink=sink_for_callbacks,
             on_progress_start=cb_start,
             on_progress_update=cb_update,
             on_progress_done=cb_done,
@@ -406,8 +552,9 @@ def run_from_config(
         json.dump(cfg.to_dict(), f, indent=2, ensure_ascii=False)
 
     # Final webhook for results if enabled (allows distinct endpoint from progress).
-    if effective_sink is not None and hasattr(effective_sink, "on_result"):
-        _safe_call(getattr(effective_sink, "on_result"), wrapped)
+    target_sink = sink_for_callbacks
+    if target_sink is not None and hasattr(target_sink, "on_result"):
+        _safe_call(getattr(target_sink, "on_result"), wrapped)
 
     return wrapped
 

@@ -30,6 +30,13 @@ except Exception as exc:  # pragma: no cover
     TellMeEvaluator = None  # type: ignore
     logger.debug("TellMeEvaluator unavailable: %s", exc)
 
+# SPIN evaluator is lightweight at import-time (heavy deps loaded lazily).
+try:
+    from llm_diagnose.evaluators.spin import SpinEvaluator
+except Exception as exc:  # pragma: no cover
+    SpinEvaluator = None  # type: ignore
+    logger.debug("SpinEvaluator unavailable: %s", exc)
+
 # X-Boundary evaluator is lightweight at import-time (heavy deps loaded lazily).
 from llm_diagnose.evaluators.xboundary import XBoundaryEvaluator
 
@@ -45,4 +52,6 @@ if RepresentationEngineeringEvaluator is not None:  # pragma: no cover
     __all__.append("RepresentationEngineeringEvaluator")
 if TellMeEvaluator is not None:  # pragma: no cover
     __all__.append("TellMeEvaluator")
+if SpinEvaluator is not None:  # pragma: no cover
+    __all__.append("SpinEvaluator")
 

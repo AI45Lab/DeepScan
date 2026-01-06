@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from llm_diagnose import ConfigLoader, run_from_config
@@ -62,6 +63,8 @@ class EvaluationCreateRequest(BaseModel):
 
 
 app = FastAPI(title="LLM-Diagnose Test API", version="0.1.0")
+
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["*"], allow_headers=["*"])
 
 security = HTTPBearer(auto_error=True)
 _runs: Dict[str, EvaluationState] = {}

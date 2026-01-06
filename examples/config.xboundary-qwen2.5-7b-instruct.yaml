@@ -15,7 +15,7 @@ evaluator:
   type: xboundary
   batch_size: 16
   max_length: 1024
-  # Either specify explicit layers...
+  # Eitehr specify explicit layers...
   # target_layers: [9, 18]
   # ...or comma-separated:
   # target_layers_csv: "9,18"

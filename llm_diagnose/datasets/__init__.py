@@ -40,3 +40,11 @@ try:  # X-Boundary (loads `datasets` only when you actually load the dataset)
 except Exception as exc:  # pragma: no cover
     logger.debug("Skipping X-Boundary dataset registration: %s", exc)
 
+try:  # SPIN (no extra deps)
+    from llm_diagnose.datasets.spin import register_spin_dataset
+
+    register_spin_dataset()
+    __all__.append("register_spin_dataset")
+except Exception as exc:  # pragma: no cover
+    logger.debug("Skipping SPIN dataset registration: %s", exc)
+
