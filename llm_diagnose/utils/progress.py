@@ -82,7 +82,7 @@ class ProgressReporter:
         total: Optional[int] = None,
         desc: Optional[str] = None,
         logger_: Optional[logging.Logger] = None,
-        log_ratio: float = 0.1,
+        log_ratio: float = 0.05,
         progress_sink: Optional[Any] = None,
         on_start: Optional[Callable[[Optional[int], str], None]] = None,
         on_update: Optional[Callable[[int, Optional[int], str], None]] = None,
@@ -93,6 +93,7 @@ class ProgressReporter:
         self.logger = logger_ or logger
         self._log_ratio = max(0.01, log_ratio)
         self._log_every = None
+        self._last_notified = 0
         self._bar = None
         self._started = False
         self._completed = 0
@@ -112,7 +113,8 @@ class ProgressReporter:
         if self._started:
             return
         self._started = True
-
+        self._compute_log_every()
+        self._last_notified = 0
         self._notify_start()
 
         if self.total:
@@ -132,21 +134,18 @@ class ProgressReporter:
         self._completed += max(0, int(n))
         if self._bar:
             self._bar.update(n)
-            self._notify_update()
+            if self._log_every is None:
+                self._compute_log_every()
+            if self._should_notify():
+                self._notify_update()
             return
 
         if self._log_every is None:
             self._compute_log_every()
 
-        should_log = False
-        if self.total:
-            should_log = self._completed >= self.total or (self._completed % self._log_every == 0)
-            msg_total = f"{self._completed}/{self.total}"
-        else:
-            should_log = self._completed % self._log_every == 0
-            msg_total = f"{self._completed}"
+        msg_total = f"{self._completed}/{self.total}" if self.total else f"{self._completed}"
 
-        if should_log:
+        if self._should_notify():
             self.logger.info("%s: %s", self.desc, msg_total)
             self._notify_update()
 
@@ -168,6 +167,22 @@ class ProgressReporter:
         else:
             self._log_every = 50
 
+    def _should_notify(self) -> bool:
+        """
+        Decide whether to emit an update/log, allowing for large step sizes.
+        """
+        if self._log_every is None:
+            self._compute_log_every()
+
+        if self.total:
+            if self._completed >= self.total:
+                self._last_notified = self._completed
+                return True
+        if (self._completed - self._last_notified) >= self._log_every:
+            self._last_notified = self._completed
+            return True
+        return False
+
     def _notify_start(self) -> None:
         self._safe_call(self._on_start, self.total, self.desc)
         self._safe_sink("on_start", self.total, self.desc)
@@ -179,6 +194,7 @@ class ProgressReporter:
     def _notify_done(self) -> None:
         self._safe_call(self._on_done, self._completed, self.total, self.desc)
         self._safe_sink("on_done", self._completed, self.total, self.desc)
+
 
     def _safe_call(self, fn: Optional[Callable], *args) -> None:
         if fn is None:

@@ -72,9 +72,40 @@ class XBoundarySummarizer(BaseSummarizer):
         models = results.get("models", []) if isinstance(results, dict) else []
         per_model: Dict[str, Any] = {}
 
+        def _pick_xboundary_results(model_entry: Dict[str, Any]) -> Dict[str, Any]:
+            """
+            Back-compat: single-evaluator runs store evaluator output in `model["results"]`.
+            Multi-evaluator runs store per-evaluator outputs in `model["evaluations"]` and/or `model["results_by_evaluator"]`.
+            """
+            if not isinstance(model_entry, dict):
+                return {}
+
+            # New schema preferred: explicit per-evaluator evaluations list.
+            evals = model_entry.get("evaluations") or []
+            if isinstance(evals, list):
+                for ev in evals:
+                    if not isinstance(ev, dict):
+                        continue
+                    meta = ev.get("evaluator") or {}
+                    if (meta.get("type") == "xboundary" or meta.get("id") == "xboundary") and isinstance(ev.get("results"), dict):
+                        return ev.get("results") or {}
+
+            # Fallback: results_by_evaluator map keyed by evaluator id.
+            rbe = model_entry.get("results_by_evaluator") or {}
+            if isinstance(rbe, dict):
+                for k, v in rbe.items():
+                    if isinstance(k, str) and ("xboundary" in k.lower()) and isinstance(v, dict):
+                        return v
+
+            # Old schema: single evaluator output.
+            if isinstance(model_entry.get("results"), dict):
+                return model_entry.get("results") or {}
+
+            return {}
+
         for m in models:
             model_id = m.get("model_id") or m.get("model_name") or "unknown"
-            r = (m.get("results") or {}) if isinstance(m, dict) else {}
+            r = _pick_xboundary_results(m) if isinstance(m, dict) else {}
 
             metrics_by_layer = r.get("metrics_by_layer") or {}
             artifacts = r.get("artifacts") or {}

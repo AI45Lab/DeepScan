@@ -4,7 +4,7 @@ End-to-end runner that executes a diagnosis pipeline from a config file/dict.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union, Callable
+from typing import Any, Dict, Optional, Union, Callable, List, Tuple
 import math
 import argparse
 import json
@@ -122,7 +122,17 @@ class _WebhookSink:
           }
         """
         evaluator_type = (result.get("evaluator") or {}).get("type")
-        if evaluator_type != "xboundary":
+        evaluators = result.get("evaluators") or []
+        has_xboundary = evaluator_type == "xboundary" or any(
+            isinstance(e, dict)
+            and (
+                e.get("type") == "xboundary"
+                or (e.get("evaluator") or {}).get("type") == "xboundary"
+                or (e.get("evaluator") or {}).get("id") == "xboundary"
+            )
+            for e in evaluators
+        )
+        if not has_xboundary:
             return None
 
         def _to_int(val: Any) -> Any:
@@ -135,10 +145,36 @@ class _WebhookSink:
                 return int(round(val))
             return val
 
+        def _extract_xboundary_results(model_entry: Dict[str, Any]) -> Dict[str, Any]:
+            # Old schema: model_entry["results"] is xboundary.
+            if evaluator_type == "xboundary" and isinstance(model_entry.get("results"), dict):
+                return model_entry.get("results") or {}
+
+            # New schema: model_entry["evaluations"] holds per-evaluator results.
+            evals = model_entry.get("evaluations") or []
+            if isinstance(evals, list):
+                for ev in evals:
+                    if not isinstance(ev, dict):
+                        continue
+                    ev_meta = ev.get("evaluator") or {}
+                    if (ev_meta.get("type") == "xboundary" or ev_meta.get("id") == "xboundary") and isinstance(
+                        ev.get("results"), dict
+                    ):
+                        return ev.get("results") or {}
+
+            # Fallback: results_by_evaluator map.
+            rbe = model_entry.get("results_by_evaluator") or {}
+            if isinstance(rbe, dict):
+                for k, v in rbe.items():
+                    if isinstance(k, str) and ("xboundary" in k.lower()) and isinstance(v, dict):
+                        return v
+
+            return {}
+
         flat_metrics: Dict[str, Any] = {}
         models = result.get("models") or []
         for model_entry in models:
-            raw_results = model_entry.get("results") or {}
+            raw_results = _extract_xboundary_results(model_entry) or {}
             per_layer = (raw_results.get("metrics") or {}).get("per_layer") or raw_results.get("metrics_by_layer") or {}
             for layer_key, layer_metrics in per_layer.items():
                 prefix = f"layer_{layer_key}"
@@ -270,6 +306,108 @@ class _PipelineProgressAdapter:
         self._call_sink("on_result", result)
 
 
+class _PhaseProgressAdapter:
+    """
+    Wrap a sink so repeated evaluator phases contribute to a single monotonically
+    increasing progress stream (useful for multiple evaluators in one run).
+    """
+
+    def __init__(
+        self,
+        sink: Any,
+        *,
+        phase_idx: int,
+        n_phases: int,
+        phase_total: Optional[int],
+        phase_label: str,
+        global_total: Optional[int] = None,
+        phase_offset: Optional[int] = None,
+        equalize_mode: bool = False,
+    ):
+        self._sink = sink
+        self.phase_idx = max(0, int(phase_idx))
+        self.n_phases = max(1, int(n_phases))
+        self.phase_total = phase_total if isinstance(phase_total, int) and phase_total > 0 else None
+        self.phase_label = phase_label or "phase"
+        self.global_total_override = global_total if isinstance(global_total, int) and global_total > 0 else None
+        self.phase_offset = phase_offset if isinstance(phase_offset, int) and phase_offset >= 0 else None
+        self.equalize_mode = bool(equalize_mode)
+        self._phase_total_seen: Optional[int] = None
+
+    def _call(self, method: str, *args: Any) -> None:
+        if self._sink is None:
+            return
+        fn = getattr(self._sink, method, None)
+        if fn is None:
+            return
+        try:
+            fn(*args)
+        except Exception:
+            logging.debug("Progress sink call failed", exc_info=True)
+
+    def _effective_phase_total(self, total: Optional[int]) -> Optional[int]:
+        if self.phase_total is not None:
+            return self.phase_total
+        if isinstance(total, int) and total > 0:
+            return total
+        return self._phase_total_seen
+
+    def _global_total(self, total: Optional[int]) -> Optional[int]:
+        if self.global_total_override is not None:
+            return self.global_total_override
+        phase_total = self._effective_phase_total(total)
+        if phase_total is None:
+            return None
+        return int(phase_total) * int(self.n_phases)
+
+    def _global_completed(self, completed: int, total: Optional[int]) -> Optional[int]:
+        phase_total = self._effective_phase_total(total)
+        if phase_total is None:
+            return None
+        bounded = min(max(int(completed), 0), int(phase_total))
+        if self.equalize_mode and self.global_total_override is not None:
+            frac = float(bounded) / float(phase_total) if phase_total else 0.0
+            base = float(self.phase_offset or 0)
+            return base + frac
+        if self.phase_offset is not None:
+            return self.phase_offset + bounded
+        return int(self.phase_idx) * int(phase_total) + bounded
+
+    def on_start(self, total: Optional[int], desc: str) -> None:
+        if isinstance(total, int) and total > 0:
+            self._phase_total_seen = int(total)
+        global_total = self._global_total(total)
+        # Only emit a real start once to avoid resetting sinks between phases.
+        if self.phase_idx == 0:
+            self._call("on_start", global_total, desc)
+        else:
+            global_completed = self._global_completed(0, total)
+            if global_completed is not None:
+                self._call("on_update", global_completed, global_total, desc)
+
+    def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
+        if isinstance(total, int) and total > 0:
+            self._phase_total_seen = int(total)
+        global_total = self._global_total(total)
+        global_completed = self._global_completed(completed, total)
+        if global_completed is None:
+            self._call("on_update", completed, total, desc)
+        else:
+            self._call("on_update", global_completed, global_total, desc)
+
+    def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
+        if isinstance(total, int) and total > 0:
+            self._phase_total_seen = int(total)
+        global_total = self._global_total(total)
+        # Mark this phase completed.
+        global_completed = self._global_completed(self._effective_phase_total(total) or completed, total)
+        if global_completed is not None:
+            self._call("on_update", global_completed, global_total, desc)
+        # Only emit "done" at the end of the final phase.
+        if self.phase_idx == self.n_phases - 1:
+            self._call("on_done", global_total or completed, global_total, desc)
+
+
 def run_from_config(
     config: Union[str, Dict[str, Any], ConfigLoader],
     *,
@@ -284,6 +422,7 @@ def run_from_config(
     result_webhook: Optional[str] = None,
     webhook_config: Optional[Union[str, Dict[str, Any], ConfigLoader]] = None,
     append_run_id_query: Optional[bool] = None,
+    progress_equalize_evaluators: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Execute an end-to-end diagnosis based on the provided configuration.
@@ -300,6 +439,16 @@ def run_from_config(
           type: tellme               # evaluator registry key
           ... evaluator-specific kwargs ...
 
+        # Or: multiple evaluators in one run
+        # (either `evaluator: [ ... ]` or `evaluators: [ ... ]` is accepted)
+        evaluators:
+          - type: xboundary
+            run_name: xb
+            ... evaluator-specific kwargs ...
+          - type: spin
+            run_name: spin_privacy
+            ... evaluator-specific kwargs ...
+
     Args:
         config: Path, dict, or ConfigLoader with model/dataset/evaluator sections.
         dry_run: If True, only validates registry entries and returns None.
@@ -312,25 +461,73 @@ def run_from_config(
     cfg_progress_webhook = cfg.get("progress_webhook")
     cfg_result_webhook = cfg.get("result_webhook")
     cfg_append_run_id_query = cfg.get("append_run_id_query")
+    cfg_progress_equalize = cfg.get("progress_equalize_evaluators")
     wh_progress_webhook = webhook_cfg.get("progress_webhook")
     wh_result_webhook = webhook_cfg.get("result_webhook")
     wh_append_run_id_query = webhook_cfg.get("append_run_id_query")
     model_cfg_raw = cfg.get("model", {}) or {}
     models_cfg = model_cfg_raw if isinstance(model_cfg_raw, list) else [model_cfg_raw]
     dataset_cfg = cfg.get("dataset", {}) or {}
-    evaluator_cfg = cfg.get("evaluator", {}) or {}
+    evaluator_cfg_raw = cfg.get("evaluators")
+    if evaluator_cfg_raw is None:
+        evaluator_cfg_raw = cfg.get("evaluator", {}) or {}
+    evaluator_cfgs: List[Dict[str, Any]]
+    if isinstance(evaluator_cfg_raw, list):
+        evaluator_cfgs = evaluator_cfg_raw
+    else:
+        evaluator_cfgs = [evaluator_cfg_raw]
     summarizer_cfg = cfg.get("summarizer", {}) or {}
 
     if not models_cfg:
         raise ValueError("Config must provide at least one model entry.")
 
-    dataset_name = dataset_cfg.get("name")
-    if not dataset_name:
-        raise ValueError("Config must provide dataset.name.")
+    if not evaluator_cfgs:
+        raise ValueError("Config must provide evaluator (dict) or evaluators (list of dicts).")
 
-    evaluator_type = evaluator_cfg.get("type")
-    if not evaluator_type:
-        raise ValueError("Config must provide evaluator.type.")
+    evaluator_types: List[str] = []
+    evaluator_dataset_cfgs: List[Dict[str, Any]] = []
+    evaluator_summarizer_cfgs: List[Optional[Dict[str, Any]]] = []
+
+    def _coerce_dataset_cfg(ds_cfg: Optional[Dict[str, Any]], *, idx: int) -> Dict[str, Any]:
+        if ds_cfg is None:
+            return dataset_cfg
+        if not isinstance(ds_cfg, dict):
+            raise ValueError(f"evaluator.dataset must be a dict (got {type(ds_cfg)!r}) at index {idx}.")
+        return ds_cfg
+
+    dataset_names: List[str] = []
+    for idx, e_cfg in enumerate(evaluator_cfgs):
+        if not isinstance(e_cfg, dict):
+            raise ValueError(f"Each evaluator entry must be a dict (got: {type(e_cfg)!r}) at index {idx}.")
+        e_type = e_cfg.get("type")
+        if not e_type:
+            raise ValueError(f"Each evaluator entry must provide evaluator.type (missing at index {idx}).")
+        evaluator_types.append(str(e_type))
+        ds_cfg = _coerce_dataset_cfg(e_cfg.get("dataset"), idx=idx)
+        if not ds_cfg:
+            raise ValueError("Config must provide dataset (root-level) or evaluator.dataset.")
+        ds_name = ds_cfg.get("name")
+        if not ds_name:
+            raise ValueError(f"Dataset name is required for evaluator at index {idx} (dataset.name missing).")
+        evaluator_dataset_cfgs.append(ds_cfg)
+        dataset_names.append(str(ds_name))
+        e_sum_cfg = e_cfg.get("summarizer")
+        if e_sum_cfg is not None:
+            if not isinstance(e_sum_cfg, dict):
+                raise ValueError(f"evaluator.summarizer must be a dict (got {type(e_sum_cfg)!r}) at index {idx}.")
+            e_sum_type = e_sum_cfg.get("type")
+            if not e_sum_type:
+                raise ValueError(f"evaluator.summarizer.type is required (missing at index {idx}).")
+            if not get_summarizer_registry().is_registered(str(e_sum_type)):
+                raise RuntimeError(f"Summarizer '{e_sum_type}' is not registered.")
+            evaluator_summarizer_cfgs.append(e_sum_cfg)
+        else:
+            evaluator_summarizer_cfgs.append(None)
+
+    if not dataset_names:
+        raise ValueError("Config must provide dataset (root-level) or evaluator.dataset.")
+
+    evaluator_type = evaluator_types[0]
 
     model_registry = get_model_registry()
     dataset_registry = get_dataset_registry()
@@ -345,10 +542,12 @@ def run_from_config(
         if not model_registry.is_registered(model_key):
             raise RuntimeError(f"Model '{model_key}' is not registered.")
 
-    if not dataset_registry.is_registered(dataset_name):
-        raise RuntimeError(f"Dataset '{dataset_name}' is not registered.")
-    if not evaluator_registry.is_registered(evaluator_type):
-        raise RuntimeError(f"Evaluator '{evaluator_type}' is not registered.")
+    for ds_name in dataset_names:
+        if not dataset_registry.is_registered(ds_name):
+            raise RuntimeError(f"Dataset '{ds_name}' is not registered.")
+    for e_type in evaluator_types:
+        if not evaluator_registry.is_registered(e_type):
+            raise RuntimeError(f"Evaluator '{e_type}' is not registered.")
 
     summarizer_type = summarizer_cfg.get("type")
     if summarizer_type:
@@ -358,6 +557,8 @@ def run_from_config(
     if dry_run:
         return None
 
+    # No global throttling; progress driven by sample counts.
+
     # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
     resolved_progress_webhook = progress_webhook or wh_progress_webhook or cfg_progress_webhook
@@ -366,6 +567,11 @@ def run_from_config(
         append_run_id_query
         if append_run_id_query is not None
         else (wh_append_run_id_query if wh_append_run_id_query is not None else cfg_append_run_id_query)
+    )
+    resolved_progress_equalize = (
+        progress_equalize_evaluators
+        if progress_equalize_evaluators is not None
+        else cfg_progress_equalize
     )
     if resolved_append_run_id_query is None:
         resolved_append_run_id_query = True
@@ -438,20 +644,89 @@ def run_from_config(
             _safe_call(getattr(target_sink, "on_done"), completed, total, desc)
 
     _emit_update(0, None, "preparing dataset")
+    # Prepare evaluators (support multiple evaluators run linearly).
+    evaluator_specs: List[Dict[str, Any]] = []
+    for idx, e_cfg in enumerate(evaluator_cfgs):
+        e_type = str(e_cfg.get("type"))
+        e_run_name = e_cfg.get("run_name")
+        e_id = str(e_run_name or e_type)
+        if any(spec.get("id") == e_id for spec in evaluator_specs):
+            e_id = f"{e_id}_{idx}"
+        evaluator_kwargs = {
+            k: v for k, v in e_cfg.items() if k not in {"type", "run_name", "dataset", "summarizer"}
+        }
+        e_dataset_cfg = evaluator_dataset_cfgs[idx]
+        e_summarizer_cfg = evaluator_summarizer_cfgs[idx]
+        evaluator_obj = evaluator_registry.create_evaluator(e_type, config=evaluator_kwargs)
+        evaluator_specs.append(
+            {
+                "id": e_id,
+                "type": e_type,
+                "config": e_cfg,
+                "instance": evaluator_obj,
+                "dataset_cfg": e_dataset_cfg,
+                "summarizer_cfg": e_summarizer_cfg,
+            }
+        )
 
-    dataset_kwargs = {k: v for k, v in dataset_cfg.items() if k != "name"}
-    dataset = dataset_registry.get_dataset(dataset_name, **dataset_kwargs)
-    dataset_total = infer_total_items(dataset)
-    if progress_adapter is not None:
-        progress_adapter.set_eval_total(dataset_total)
-    if dataset_total is not None:
-        logging.info("Loaded dataset '%s' with %d examples", dataset_name, dataset_total)
-        _emit_update(0, dataset_total, "dataset ready")
+    # Load datasets lazily per evaluator (cache identical configs).
+    dataset_cache: Dict[str, Tuple[Any, Optional[int]]] = {}
+
+    def _dataset_key(ds_cfg: Dict[str, Any]) -> str:
+        try:
+            return json.dumps(ds_cfg, sort_keys=True, default=str)
+        except Exception:
+            return str(ds_cfg)
+
+    def _load_dataset(ds_cfg: Dict[str, Any]) -> Tuple[Any, Optional[int]]:
+        key = _dataset_key(ds_cfg)
+        if key in dataset_cache:
+            return dataset_cache[key]
+        ds_name = ds_cfg.get("name")
+        ds_kwargs = {k: v for k, v in ds_cfg.items() if k != "name"}
+        ds = dataset_registry.get_dataset(ds_name, **ds_kwargs)
+        ds_total = infer_total_items(ds)
+        dataset_cache[key] = (ds, ds_total)
+        return ds, ds_total
+
+    # Pre-load datasets to establish global totals for progress scaling.
+    phase_totals: List[Optional[int]] = []
+    for spec in evaluator_specs:
+        _, ds_total = _load_dataset(spec["dataset_cfg"])
+        phase_totals.append(ds_total if isinstance(ds_total, int) and ds_total > 0 else None)
+
+    all_totals_known = all(t is not None for t in phase_totals) and len(phase_totals) > 0
+
+    # Equalize mode: each evaluator gets the same weight (1 unit) when totals are known.
+    if all_totals_known and resolved_progress_equalize:
+        global_eval_total: Optional[int] = len(phase_totals)
+        phase_offsets: List[Optional[int]] = list(range(len(phase_totals)))
     else:
-        _emit_update(0, None, "dataset ready")
+        global_eval_total = sum(t for t in phase_totals if t is not None) if all_totals_known else None
+        if all_totals_known:
+            offset = 0
+            phase_offsets = []
+            for t in phase_totals:
+                phase_offsets.append(offset)
+                offset += int(t) if t is not None else 0
+        else:
+            phase_offsets = [None] * len(phase_totals)
 
-    evaluator_kwargs = {k: v for k, v in evaluator_cfg.items() if k != "type"}
-    evaluator = evaluator_registry.create_evaluator(evaluator_type, config=evaluator_kwargs)
+    # Prime progress with the first evaluator's dataset for "dataset ready" feedback.
+    first_dataset_cfg = evaluator_specs[0]["dataset_cfg"]
+    try:
+        first_dataset, first_dataset_total = _load_dataset(first_dataset_cfg)
+        if progress_adapter is not None:
+            progress_adapter.set_eval_total(global_eval_total or first_dataset_total)
+        if first_dataset_total is not None:
+            logging.info("Loaded dataset '%s' with %d examples", first_dataset_cfg.get("name"), first_dataset_total)
+            _emit_update(0, first_dataset_total, "dataset ready")
+        else:
+            _emit_update(0, None, "dataset ready")
+    except Exception:
+        raise
+
+    n_evaluators = len(evaluator_specs)
     for m_cfg in models_cfg:
         model_key = m_cfg.get("generation") or m_cfg.get("name")
         model_name = m_cfg.get("model_name")
@@ -469,16 +744,188 @@ def run_from_config(
         model_dir = run_dir / model_id
         model_dir.mkdir(parents=True, exist_ok=True)
 
-        # Provide a per-model output directory for evaluators that write artifacts (plots, metric json, etc.)
-        raw_results = evaluator.evaluate(
-            model,
-            dataset,
-            output_dir=str(model_dir.resolve()),
-            progress_sink=sink_for_callbacks,
-            on_progress_start=cb_start,
-            on_progress_update=cb_update,
-            on_progress_done=cb_done,
-        )
+        model_evaluations: List[Dict[str, Any]] = []
+        results_by_evaluator: Dict[str, Any] = {}
+
+        for e_idx, spec in enumerate(evaluator_specs):
+            e_type = spec["type"]
+            e_id = spec["id"]
+            evaluator = spec["instance"]
+            evaluator_dir = model_dir / e_id
+            evaluator_dir.mkdir(parents=True, exist_ok=True)
+
+            dataset_for_eval, dataset_total = _load_dataset(spec["dataset_cfg"])
+            if progress_adapter is not None:
+                progress_adapter.set_eval_total(global_eval_total or dataset_total)
+
+            phase_sink = (
+                _PhaseProgressAdapter(
+                    sink_for_callbacks,
+                    phase_idx=e_idx,
+                    n_phases=n_evaluators,
+                    phase_total=dataset_total if isinstance(dataset_total, int) and dataset_total > 0 else None,
+                    phase_label=e_id,
+                    global_total=global_eval_total,
+                    phase_offset=phase_offsets[e_idx],
+                    equalize_mode=bool(resolved_progress_equalize and global_eval_total is not None),
+                )
+                if sink_for_callbacks is not None and n_evaluators > 1
+                else sink_for_callbacks
+            )
+
+            # Wrap user callbacks so their progress is also monotonic across phases.
+            phase_total = dataset_total if isinstance(dataset_total, int) and dataset_total > 0 else None
+            if global_eval_total is not None:
+                # In equalize mode, totals are number of evaluators; otherwise sum of samples.
+                phase_global_total = global_eval_total
+            else:
+                phase_global_total = (phase_total * n_evaluators) if (phase_total and n_evaluators > 1) else None
+
+            def _phase_start(total: Optional[int], desc: str, _idx: int = e_idx) -> None:
+                if cb_start is None:
+                    return
+                if phase_total is None or n_evaluators <= 1:
+                    _safe_call(cb_start, total, desc)
+                    return
+                if _idx == 0:
+                    _safe_call(cb_start, phase_global_total, desc)
+
+            def _phase_update(
+                completed: int,
+                total: Optional[int],
+                desc: str,
+                _idx: int = e_idx,
+                _phase_total: Optional[int] = phase_total,
+                _global_total: Optional[int] = phase_global_total,
+            ) -> None:
+                if cb_update is None:
+                    return
+                if _phase_total is None or n_evaluators <= 1:
+                    _safe_call(cb_update, completed, total, desc)
+                    return
+                if global_eval_total is not None and resolved_progress_equalize:
+                    frac = float(completed) / float(_phase_total) if _phase_total else 0.0
+                    offset = float(phase_offsets[_idx] or 0)
+                    global_completed = offset + frac
+                    _safe_call(cb_update, global_completed, _global_total, desc)
+                elif global_eval_total is not None:
+                    bounded = min(max(int(completed), 0), int(_phase_total))
+                    offset = phase_offsets[_idx] or 0
+                    global_completed = offset + bounded
+                    _safe_call(cb_update, global_completed, _global_total, desc)
+                else:
+                    bounded = min(max(int(completed), 0), int(_phase_total))
+                    global_completed = int(_idx) * int(_phase_total) + bounded
+                    _safe_call(cb_update, global_completed, _global_total, desc)
+
+            def _phase_done(
+                completed: int,
+                total: Optional[int],
+                desc: str,
+                _idx: int = e_idx,
+                _global_total: Optional[int] = phase_global_total,
+            ) -> None:
+                if cb_done is None:
+                    return
+                if phase_total is None or n_evaluators <= 1:
+                    _safe_call(cb_done, completed, total, desc)
+                    return
+                if global_eval_total is not None and resolved_progress_equalize:
+                    if _idx == n_evaluators - 1:
+                        _safe_call(cb_done, _global_total, _global_total, desc)
+                elif global_eval_total is not None:
+                    if _idx == n_evaluators - 1:
+                        _safe_call(cb_done, _global_total, _global_total, desc)
+                else:
+                    if _idx == n_evaluators - 1:
+                        _safe_call(cb_done, _global_total, _global_total, desc)
+
+            _emit_update(0, dataset_total, f"running evaluator {e_id} on {model_label}")
+
+            raw_results = evaluator.evaluate(
+                model,
+                dataset_for_eval,
+                output_dir=str(evaluator_dir.resolve()),
+                progress_sink=phase_sink,
+                on_progress_start=_phase_start if cb_start is not None else None,
+                on_progress_update=_phase_update if cb_update is not None else None,
+                on_progress_done=_phase_done if cb_done is not None else None,
+            )
+
+            evaluator_payload = {
+                "run_id": run_identifier,
+                "timestamp": timestamp,
+                "model": {
+                    "registry_key": model_key,
+                    "model_name": model_name,
+                    "config": m_cfg,
+                },
+                "dataset": {
+                    "name": spec["dataset_cfg"].get("name"),
+                    "config": spec["dataset_cfg"],
+                },
+                "evaluator": {
+                    "id": e_id,
+                    "type": e_type,
+                    "config": spec.get("config") or {},
+                },
+                "results": raw_results,
+            }
+
+            evaluator_results_path = evaluator_dir / "results.json"
+            with open(evaluator_results_path, "w", encoding="utf-8") as f:
+                json.dump(evaluator_payload, f, indent=2, ensure_ascii=False)
+
+            # Optional per-evaluator summarizer (if provided in evaluator config).
+            e_sum_cfg = spec.get("summarizer_cfg")
+            if e_sum_cfg:
+                e_sum_type = e_sum_cfg.get("type")
+                e_sum_kwargs = {k: v for k, v in e_sum_cfg.items() if k != "type"}
+                try:
+                    e_summarizer = summarizer_registry.create_summarizer(e_sum_type, config=e_sum_kwargs)
+                    summary_input = {
+                        "run_id": run_identifier,
+                        "timestamp": timestamp,
+                        "dataset": {"name": spec["dataset_cfg"].get("name"), "config": spec["dataset_cfg"]},
+                        "evaluator": {"id": e_id, "type": e_type, "config": spec.get("config") or {}},
+                        "evaluators": [{"id": e_id, "type": e_type, "config": spec.get("config") or {}}],
+                        "models": [
+                            {
+                                "model_id": model_id,
+                                "registry_key": model_key,
+                                "model_name": model_name,
+                                "evaluations": [
+                                    {
+                                        "evaluator": {"id": e_id, "type": e_type, "config": spec.get("config") or {}},
+                                        "results": raw_results,
+                                        "results_path": str(evaluator_results_path.resolve()),
+                                    }
+                                ],
+                                "results_by_evaluator": {e_id: raw_results},
+                            }
+                        ],
+                    }
+                    e_summary = e_summarizer.summarize(summary_input)
+                    e_summary_path = evaluator_dir / "summary.json"
+                    with open(e_summary_path, "w", encoding="utf-8") as f:
+                        json.dump(e_summary, f, indent=2, ensure_ascii=False)
+                    try:
+                        report_md = e_summarizer.format_report(e_summary, format="markdown")
+                        with open(evaluator_dir / "summary.md", "w", encoding="utf-8") as f:
+                            f.write(str(report_md))
+                    except Exception:
+                        pass
+                except Exception:
+                    logging.debug("Per-evaluator summarizer failed for %s", e_id, exc_info=True)
+
+            model_evaluations.append(
+                {
+                    "evaluator": {"id": e_id, "type": e_type, "config": spec.get("config") or {}},
+                    "results": raw_results,
+                    "results_path": str(evaluator_results_path.resolve()),
+                }
+            )
+            results_by_evaluator[e_id] = raw_results
 
         per_model_payload = {
             "run_id": run_identifier,
@@ -489,17 +936,16 @@ def run_from_config(
                 "config": m_cfg,
             },
             "dataset": {
-                "name": dataset_name,
-                "config": dataset_cfg,
+                "name": first_dataset_cfg.get("name"),
+                "config": first_dataset_cfg,
             },
-            "evaluator": {
-                "type": evaluator_type,
-                "config": evaluator_cfg,
-            },
-            "results": raw_results,
+            "evaluators": [{"id": s["id"], "type": s["type"], "config": s.get("config") or {}} for s in evaluator_specs],
+            "evaluations": model_evaluations,
+            "results_by_evaluator": results_by_evaluator,
         }
 
-        with open(model_dir / "results.json", "w", encoding="utf-8") as f:
+        model_results_path = model_dir / "results.json"
+        with open(model_results_path, "w", encoding="utf-8") as f:
             json.dump(per_model_payload, f, indent=2, ensure_ascii=False)
 
         all_models_results.append(
@@ -507,8 +953,9 @@ def run_from_config(
                 "model_id": model_id,
                 "registry_key": model_key,
                 "model_name": model_name,
-                "results": raw_results,
-                "results_path": str((model_dir / "results.json").resolve()),
+                "evaluations": model_evaluations,
+                "results_by_evaluator": results_by_evaluator,
+                "results_path": str(model_results_path.resolve()),
             }
         )
 
@@ -516,8 +963,8 @@ def run_from_config(
     wrapped = {
         "run_id": run_identifier,
         "timestamp": timestamp,
-        "dataset": {"name": dataset_name, "config": dataset_cfg},
-        "evaluator": {"type": evaluator_type, "config": evaluator_cfg},
+        "dataset": {"name": first_dataset_cfg.get("name"), "config": first_dataset_cfg},
+        "evaluators": [{"id": s["id"], "type": s["type"], "config": s.get("config") or {}} for s in evaluator_specs],
         "models": all_models_results,
     }
 

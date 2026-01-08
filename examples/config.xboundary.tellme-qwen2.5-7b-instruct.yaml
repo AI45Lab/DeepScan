@@ -1,0 +1,39 @@
+model:
+  generation: qwen2.5
+  model_name: Qwen2.5-7B-Instruct
+  device: cuda
+  load_in_8bit: false
+  path: /root/models/Qwen2.5-7B-Instruct
+
+progress_equalize_evaluators: true
+
+
+evaluators:
+  - type: tellme
+    run_name: tellme
+    batch_size: 16
+    token_position: -1
+    layer_ratio: 0.6666
+    dataset:
+      name: tellme/beaver_tails_filtered
+      test_path: /root/code/TELLME/test.csv
+    summarizer:
+      type: tellme
+  - type: xboundary
+    run_name: x-boundary
+    batch_size: 8
+    max_length: 1024
+    save_metrics_json: true
+    save_tsne: true
+    dataset:
+      name: xboundary/diagnostic
+      data_dir: /root/code/X-Boundary/data
+      num_samples_per_class: 100
+    summarizer:
+      type: xboundary
+      select_by: boundary_ratio
+      include_both_selections: true
+
+# Run-level summarizer that aggregates all evaluators (tellme + x-boundary)
+summarizer:
+  type: combined
