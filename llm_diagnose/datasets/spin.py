@@ -4,7 +4,8 @@ SPIN diagnostic dataset loader.
 For exact reproduction with the SPIN reference code, we prefer to keep this loader
 "thin" and pass paths through to the evaluator, because the reference repo uses
 Hugging Face `datasets` for deterministic `shuffle(seed).select(range(nsamples))`
-sampling on CSV inputs.
+sampling on CSV inputs. The current evaluator only needs dataset1/dataset2; no
+general baseline split is required.
 """
 
 from __future__ import annotations
@@ -20,10 +21,8 @@ from llm_diagnose.registry.dataset_registry import get_dataset_registry
 class SpinCsvBundle:
     dataset1_path: str
     dataset2_path: str
-    general_path: str
     dataset1_name: str = "dataset1"
     dataset2_name: str = "dataset2"
-    general_name: str = "general"
     max_rows: Optional[int] = None
 
 
@@ -69,27 +68,22 @@ def load_spin_csv_bundle(
     *,
     dataset1_path: str,
     dataset2_path: str,
-    general_path: str,
     dataset1_name: str = "dataset1",
     dataset2_name: str = "dataset2",
-    general_name: str = "general",
     max_rows: Optional[int] = None,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """
-    Load 3 CSVs for SPIN-style diagnosis:
+    Load 2 CSVs for SPIN-style diagnosis:
     - dataset1: e.g. privacy
     - dataset2: e.g. fairness
-    - general: general capability baseline (e.g. Alpaca)
     """
 
     bundle = SpinCsvBundle(
         dataset1_path=str(dataset1_path),
         dataset2_path=str(dataset2_path),
-        general_path=str(general_path),
         dataset1_name=str(dataset1_name),
         dataset2_name=str(dataset2_name),
-        general_name=str(general_name),
         max_rows=max_rows,
     )
 
@@ -101,7 +95,6 @@ def load_spin_csv_bundle(
         "paths": {
             "dataset1": bundle.dataset1_path,
             "dataset2": bundle.dataset2_path,
-            "general": bundle.general_path,
         },
         # Backward compatible optional preload (off by default).
         "preloaded": None,
@@ -114,7 +107,7 @@ def register_spin_dataset() -> None:
         "spin/csv_bundle",
         dataset_family="spin",
         dataset_split="diagnostic",
-        description="SPIN CSV bundle (dataset1 + dataset2 + general), each with prompt/response columns.",
+        description="SPIN CSV bundle (dataset1 + dataset2), each with prompt/response columns.",
     )(load_spin_csv_bundle)
 
 

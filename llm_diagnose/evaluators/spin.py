@@ -4,8 +4,8 @@ SPIN diagnosis evaluator (diagnosis-only, reproduction-focused).
 This module intentionally mirrors the SPIN reference repository implementation
 for the "diagnostic signal" component:
 - Importance score per weight: |W| * |dL/dW| (see `runners/importance_runner.py`)
-- Coupling selection: top-q(dataset) minus top-p(general), intersect across the
-  two target datasets (see `tools/spin.py`)
+- Coupling selection: intersection of top-q(dataset1) and top-q(dataset2), no
+  subtraction by a general dataset
 
 We do NOT apply masking (mitigation) here.
 """
@@ -13,12 +13,13 @@ We do NOT apply masking (mitigation) here.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.evaluators.spin_support import ActLinear, make_act, no_act_recording, revert_act_to_linear
+from llm_diagnose.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
 
 logger = logging.getLogger(__name__)
 
@@ -131,12 +132,24 @@ def _get_set_difference_mask(p: float, q: float, W_metric1, W_metric2):
     return mask_only_metric1, mask_only_metric2, mask_intersection, unique_q
 
 
+def _top_q_unique_indices(q: float, W_metric):
+    """
+    Return the unique flattened indices of the top-q fraction of weights.
+    Used when we want the raw intersection of dataset top-q sets (no general subtraction).
+    """
+    torch_mod = _require_torch()
+    top_q = int(q * W_metric.shape[1] * W_metric.shape[0])
+    if top_q <= 0:
+        return torch_mod.tensor([], device=W_metric.device, dtype=torch_mod.long)
+    top_q_indices = torch_mod.topk(W_metric.flatten(), top_q, largest=True)[1]
+    return torch_mod.unique(top_q_indices)
+
+
 @dataclass
 class _SpinConfig:
     nsamples: int = 128
     seed: int = 0
-    # Ratios used to select top indices
-    p: float = 5e-7  # general ratio
+    # Ratio used to select top indices per dataset
     q: float = 5e-7  # dataset ratio
     target_module: str = "mlp"  # mlp | self_attn | all
     device: str = "cuda:0"
@@ -144,7 +157,6 @@ class _SpinConfig:
     # Dataset dict keys
     dataset1_key: str = "dataset1"
     dataset2_key: str = "dataset2"
-    general_key: str = "general"
 
     # Artifact verbosity
     per_layer: bool = True
@@ -159,7 +171,7 @@ class SpinEvaluator(BaseEvaluator):
 
     Expects:
     - model: a BaseModelRunner exposing `model` (HF) and `tokenizer`
-    - dataset: a dict with keys: dataset1/dataset2/general, each a list of {prompt,response}
+    - dataset: a dict with keys: dataset1/dataset2, each a list of {prompt,response}
     """
 
     def __init__(self, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
@@ -172,6 +184,11 @@ class SpinEvaluator(BaseEvaluator):
         cfg = self.spin_config
         torch_mod = _require_torch()
 
+        try:
+            q = float(cfg.q)
+        except Exception as exc:
+            raise ValueError(f"SPIN evaluator requires numeric q; got q={cfg.q!r}") from exc
+
         if cfg.target_module not in {"mlp", "self_attn", "all"}:
             raise ValueError("target_module must be one of: mlp, self_attn, all")
 
@@ -182,22 +199,21 @@ class SpinEvaluator(BaseEvaluator):
         paths = None
         if "paths" in dataset:
             paths = dataset.get("paths") or {}
+            if "dataset1" not in paths or "dataset2" not in paths:
+                raise ValueError("SpinEvaluator paths must include 'dataset1' and 'dataset2'.")
             d1 = _load_and_sample_csv_items(paths["dataset1"], cfg.nsamples, cfg.seed)
             d2 = _load_and_sample_csv_items(paths["dataset2"], cfg.nsamples, cfg.seed)
-            dg = _load_and_sample_csv_items(paths["general"], cfg.nsamples, cfg.seed)
         else:
-            for k in (cfg.dataset1_key, cfg.dataset2_key, cfg.general_key):
+            for k in (cfg.dataset1_key, cfg.dataset2_key):
                 if k not in dataset:
                     raise ValueError(f"SpinEvaluator dataset is missing key: {k!r}")
             d1 = list(dataset[cfg.dataset1_key])
             d2 = list(dataset[cfg.dataset2_key])
-            dg = list(dataset[cfg.general_key])
 
         hf_model, tokenizer = _extract_hf_model_and_tokenizer(model)
         device = torch_mod.device(cfg.device)
 
         # Build SPIN-style "dataloader" (list of (inp, tar) pairs)
-        batches_general = _build_disentangled_pairs(tokenizer, dg)
         batches_1 = _build_disentangled_pairs(tokenizer, d1)
         batches_2 = _build_disentangled_pairs(tokenizer, d2)
 
@@ -206,6 +222,7 @@ class SpinEvaluator(BaseEvaluator):
             batches: List[Tuple[Any, Any]],
             *,
             progress=None,
+            throughput_tracker: Optional[TokenThroughputTracker] = None,
         ) -> Dict[str, Any]:
             model_wrapped = make_act(hf_model, verbose=False)
             model_wrapped.eval()
@@ -229,6 +246,8 @@ class SpinEvaluator(BaseEvaluator):
                 for inp, tar in batches:
                     if progress is not None:
                         progress.update(1)
+                    if throughput_tracker is not None:
+                        throughput_tracker.add_batch(inp)
                     inp, tar = inp.to(device), tar.to(device)
                     model_wrapped.zero_grad()
                     with no_act_recording(model_wrapped):
@@ -258,7 +277,7 @@ class SpinEvaluator(BaseEvaluator):
 
         total_steps = (
             int(hf_model.config.num_hidden_layers)
-            * (len(batches_general) + len(batches_1) + len(batches_2))
+            * (len(batches_1) + len(batches_2))
         )
         progress_sink = kwargs.get("progress_sink")
         with self.progress(
@@ -270,16 +289,24 @@ class SpinEvaluator(BaseEvaluator):
             on_update=kwargs.get("on_progress_update"),
             on_done=kwargs.get("on_progress_done"),
         ) as progress:
-            imp_general = _compute_importance_registry(batches_general, progress=progress)
-            imp_1 = _compute_importance_registry(batches_1, progress=progress)
-            imp_2 = _compute_importance_registry(batches_2, progress=progress)
+            imp_1 = _compute_importance_registry(
+                batches_1, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
+            )
+            imp_2 = _compute_importance_registry(
+                batches_2, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
+            )
 
         results: Dict[str, Any] = {
-            "evaluator": "spin",
-            "config": cfg,
+            "evaluator": {"id": "spin", "type": "spin"},
+            "config": asdict(cfg),
             "dataset_paths": paths,
             "nsamples": int(cfg.nsamples),
-            "totals": {"candidate_dataset1": 0, "candidate_dataset2": 0, "coupled": 0},
+            "totals": {
+                "candidate_dataset1": 0,
+                "candidate_dataset2": 0,
+                "coupled": 0,
+                "total_neurons": 0,
+            },
             "layers": [],
             "artifacts": {},
         }
@@ -289,15 +316,20 @@ class SpinEvaluator(BaseEvaluator):
         coupled_per_layer: List[int] = [0 for _ in range(num_layers)]
 
         for layer_idx in range(num_layers):
-            layer_totals = {"candidate_dataset1": 0, "candidate_dataset2": 0, "coupled": 0}
+            layer_totals = {
+                "candidate_dataset1": 0,
+                "candidate_dataset2": 0,
+                "coupled": 0,
+                "total_neurons": 0,
+            }
             if cfg.per_module:
                 modules_out: List[Dict[str, Any]] = []
 
-            # enumerate modules present in all three registries for this layer
+            # enumerate modules present in both dataset registries for this layer
             prefix = f"layer_{layer_idx}:"
             keys = sorted(
-                k for k in imp_general.keys()
-                if k.startswith(prefix) and k in imp_1 and k in imp_2
+                k for k in imp_1.keys()
+                if k.startswith(prefix) and k in imp_2
             )
 
             for k in keys:
@@ -307,24 +339,22 @@ class SpinEvaluator(BaseEvaluator):
                 if cfg.target_module == "self_attn" and "mlp" in rel_name:
                     continue
 
-                Wg = imp_general[k]
                 W1 = imp_1[k]
                 W2 = imp_2[k]
+                module_neurons = int(W1.numel())
 
-                _, mask_only_1, _, unique_1 = _get_set_difference_mask(cfg.p, cfg.q, Wg, W1)
-                _, mask_only_2, _, unique_2 = _get_set_difference_mask(cfg.p, cfg.q, Wg, W2)
+                # Pure intersection: top-q privacy vs top-q fairness (no subtraction of general)
+                cand1 = _top_q_unique_indices(q, W1)
+                cand2 = _top_q_unique_indices(q, W2)
 
-                # Candidate indices per dataset = unique_q[mask_only_metric2]
-                cand1 = unique_1[mask_only_1]
-                cand2 = unique_2[mask_only_2]
-
-                # Coupled = intersection of the candidate sets (SPIN uses boolean masks over unique arrays)
+                # Coupled = intersection of the candidate sets (no general subtraction)
                 coupled = torch_mod.isin(cand1, cand2)
                 coupled_count = int(coupled.sum().item())
 
                 layer_totals["candidate_dataset1"] += int(cand1.numel())
                 layer_totals["candidate_dataset2"] += int(cand2.numel())
                 layer_totals["coupled"] += coupled_count
+                layer_totals["total_neurons"] += module_neurons
 
                 if cfg.per_module:
                     modules_out.append(
@@ -333,6 +363,11 @@ class SpinEvaluator(BaseEvaluator):
                             "candidate_dataset1": int(cand1.numel()),
                             "candidate_dataset2": int(cand2.numel()),
                             "coupled": coupled_count,
+                            "total_neurons": module_neurons,
+                            # Fairness–Privacy Neurons Coupling Ratio: coupled / all neurons
+                            "fairness_privacy_neurons_coupling_ratio": (
+                                coupled_count / module_neurons if module_neurons > 0 else float("nan")
+                            ),
                         }
                     )
 
@@ -340,9 +375,19 @@ class SpinEvaluator(BaseEvaluator):
             results["totals"]["candidate_dataset1"] += layer_totals["candidate_dataset1"]
             results["totals"]["candidate_dataset2"] += layer_totals["candidate_dataset2"]
             results["totals"]["coupled"] += layer_totals["coupled"]
+            results["totals"]["total_neurons"] += layer_totals["total_neurons"]
 
             if cfg.per_layer:
-                entry: Dict[str, Any] = {"layer_idx": int(layer_idx), "totals": layer_totals}
+                entry: Dict[str, Any] = {
+                    "layer_idx": int(layer_idx),
+                    "totals": layer_totals,
+                    # Fairness–Privacy Neurons Coupling Ratio: coupled / all neurons
+                    "fairness_privacy_neurons_coupling_ratio": (
+                        layer_totals["coupled"] / layer_totals["total_neurons"]
+                        if layer_totals["total_neurons"] > 0
+                        else float("nan")
+                    ),
+                }
                 if cfg.per_module:
                     entry["modules"] = modules_out
                 results["layers"].append(entry)
@@ -350,6 +395,12 @@ class SpinEvaluator(BaseEvaluator):
         denom = float(results["totals"]["candidate_dataset1"] + results["totals"]["candidate_dataset2"]) / 2.0
         results["totals"]["coupled_rate_vs_candidate_mean"] = (
             float(results["totals"]["coupled"]) / denom if denom > 0 else float("nan")
+        )
+        # Fairness–Privacy Neurons Coupling Ratio: coupled / all neurons
+        results["totals"]["fairness_privacy_neurons_coupling_ratio"] = (
+            float(results["totals"]["coupled"]) / float(results["totals"]["total_neurons"])
+            if results["totals"]["total_neurons"] > 0
+            else float("nan")
         )
 
         # Optional plot artifact written to output_dir (provided by run.py)

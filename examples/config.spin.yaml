@@ -9,20 +9,18 @@ dataset:
   name: spin/csv_bundle
   dataset1_name: privacy
   dataset2_name: fairness
-  general_name: general
   # Point to CSVs with columns: prompt,response
-  dataset1_path: /abs/path/to/beaver_train330k_privacy_safe_1k.csv
-  dataset2_path: /abs/path/to/beaver_train330k_fairness_safe_1k.csv
-  general_path: /abs/path/to/alpaca_cleaned_no_safety_train_1k.csv
+  dataset1_path: /root/code/SPIN/data/beaver_train330k_privacy_safe_10.csv
+  dataset2_path: /root/code/SPIN/data/beaver_train330k_fairness_safe_10.csv
   # Optional: cap rows loaded from each CSV
   # max_rows: 1000
 
 evaluator:
   type: spin
-  nsamples: 128
+  # Keep nsamples <= available rows (100-row samples)
+  nsamples: 8
   seed: 0
-  # Ratios controlling top-index selection
-  p: 5e-7   # general
+  # Ratio controlling top-index selection per dataset
   q: 5e-7   # dataset1/dataset2
   target_module: mlp  # mlp | self_attn | all
   per_layer: true

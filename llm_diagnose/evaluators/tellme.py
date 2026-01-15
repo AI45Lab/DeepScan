@@ -21,6 +21,7 @@ from opt_einsum import contract
 
 from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
+from llm_diagnose.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,7 @@ class TellMeEvaluator(BaseEvaluator):
             on_progress_start=kwargs.get("on_progress_start"),
             on_progress_update=kwargs.get("on_progress_update"),
             on_progress_done=kwargs.get("on_progress_done"),
+            throughput_tracker=kwargs.get("throughput_tracker"),
         )
 
         labels = torch.tensor(test_df["is_safe"].astype(int).tolist(), dtype=torch.long)
@@ -284,6 +286,7 @@ class TellMeEvaluator(BaseEvaluator):
         on_progress_start: Any = None,
         on_progress_update: Any = None,
         on_progress_done: Any = None,
+        throughput_tracker: Optional[TokenThroughputTracker] = None,
     ) -> torch.Tensor:
         if tokenizer is None:
             raise RuntimeError("TellMeEvaluator requires a tokenizer on the model runner.")
@@ -314,6 +317,8 @@ class TellMeEvaluator(BaseEvaluator):
                         batch_prompts, return_tensors="pt", padding=True, truncation=True
                     )
                     inputs = {k: v.to(device) for k, v in inputs.items()}
+                    if throughput_tracker is not None:
+                        throughput_tracker.add_batch(inputs)
                     with torch.no_grad():
                         _ = model.model(**inputs) if hasattr(model, "model") else model(**inputs)
                     progress.update(len(batch_prompts))

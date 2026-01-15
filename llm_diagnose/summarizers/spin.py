@@ -3,6 +3,7 @@ SPIN summarizer.
 
 This summarizes the diagnosis-only SPIN evaluator output:
 - Total coupled count and coupled rate
+- Fairness–Privacy Neurons Coupling Ratio (coupled / total neurons)
 - Top layers by coupled count
 - Preserves artifact paths (e.g., coupled_per_layer plot)
 """
@@ -91,6 +92,7 @@ class SpinSummarizer(BaseSummarizer):
                     "candidate_dataset1": totals.get("candidate_dataset1"),
                     "candidate_dataset2": totals.get("candidate_dataset2"),
                     "coupled_rate_vs_candidate_mean": totals.get("coupled_rate_vs_candidate_mean"),
+                    "fairness_privacy_neurons_coupling_ratio": totals.get("fairness_privacy_neurons_coupling_ratio"),
                 },
                 "top_layers_by_coupled": _pick_top_layers(layers, self._cfg.top_layers),
                 "artifacts": artifacts,

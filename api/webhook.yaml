@@ -1,4 +1,5 @@
 progress_webhook: http://101.126.156.90:55812/api/internal/job/
+log_webhook: http://101.126.156.90:55812/api/internal/log
 result_webhook: http://101.126.156.90:55812/api/internal/report
 # append_run_id_query: true
 

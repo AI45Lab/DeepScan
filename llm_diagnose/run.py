@@ -9,6 +9,7 @@ import math
 import argparse
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -19,6 +20,29 @@ from llm_diagnose.registry.dataset_registry import get_dataset_registry
 from llm_diagnose.evaluators.registry import get_evaluator_registry
 from llm_diagnose.summarizers.registry import get_summarizer_registry
 from llm_diagnose.utils.progress import infer_total_items
+from llm_diagnose.utils.throughput import TokenThroughputTracker
+
+# Dedicated logger for webhook payload tracing.
+_webhook_logger = logging.getLogger("llm_diagnose.webhook")
+if not _webhook_logger.handlers:
+    _formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
+    # Console/STDOUT handler (still visible in nohup/out).
+    _console = logging.StreamHandler()
+    _console.setFormatter(_formatter)
+    _webhook_logger.addHandler(_console)
+    # File handler for webhook API payload logs (rotating to avoid unbounded growth).
+    try:
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        file_handler = RotatingFileHandler(logs_dir / "webhook.log", maxBytes=5 * 1024 * 1024, backupCount=3)
+        file_handler.setFormatter(_formatter)
+        _webhook_logger.addHandler(file_handler)
+    except Exception:
+        # If file handler setup fails, continue with console only.
+        pass
+    # Ensure we log INFO by default; users can override via standard logging config.
+    _webhook_logger.setLevel(logging.INFO)
+    _webhook_logger.propagate = False
 
 
 def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> ConfigLoader:
@@ -98,9 +122,21 @@ class _WebhookSink:
         if self._requests is None or not url:
             return
         try:
+            self._log_payload(url, payload, method)
             self._requests.request(method=method, url=url, json=payload, timeout=self.timeout)
         except Exception:
             logging.debug("Webhook post failed.", exc_info=True)
+
+    @staticmethod
+    def _log_payload(url: Optional[str], payload: Any, method: str) -> None:
+        """Best-effort payload logging with size guard to avoid log spam."""
+        try:
+            body = json.dumps(payload, ensure_ascii=False, default=str)
+            if len(body) > 1200:
+                body = body[:1200] + "...<truncated>"
+            _webhook_logger.info("Webhook send | method=%s | url=%s | payload=%s", method, url, body)
+        except Exception:
+            _webhook_logger.info("Webhook send | method=%s | url=%s | payload=<unserializable>", method, url)
 
     def _post_progress(self, *, status: str, progress: Optional[float], pass_rate: Optional[float] = None) -> None:
         payload: Dict[str, Any] = {"status": status, "run_id": self.run_id}
@@ -108,6 +144,66 @@ class _WebhookSink:
             payload["progress"] = progress
         if pass_rate is not None:
             payload["passRate"] = pass_rate
+        self._send_json(self.progress_url, payload, method="post")
+
+    def post_snapshot(self, snapshot: Dict[str, Any], message: Optional[str] = None) -> None:
+        """
+        Send a one-time payload snapshot before execution starts.
+        Keeps the schema backward compatible by reusing the progress webhook.
+        """
+        safe_snapshot = self._prune_nones(self._sanitize_numbers(snapshot or {}))
+        payload: Dict[str, Any] = {
+            "type": "run.snapshot",
+            "status": "pending",
+            "run_id": self.run_id,
+            "message": message or f"Run {self.run_id} is starting.",
+            "snapshot": safe_snapshot,
+        }
+        self._send_json(self.progress_url, payload, method="post")
+
+    def post_status_message(
+        self,
+        message: str,
+        *,
+        status: str = "complete",
+        progress: Optional[float] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Send a natural-language status update (typically at completion).
+        """
+        if not message:
+            return
+        payload: Dict[str, Any] = {
+            "type": "run.completed" if status == "complete" else "run.status",
+            "status": status,
+            "run_id": self.run_id,
+            "message": message,
+        }
+        if progress is not None:
+            payload["progress"] = progress
+        if extra:
+            payload["extra"] = self._prune_nones(self._sanitize_numbers(extra))
+        self._send_json(self.progress_url, payload, method="post")
+
+    def on_throughput(self, metrics: Dict[str, Any]) -> None:
+        """
+        Emit throughput using `perf` field (aligned with progress payload shape).
+
+        Example:
+            {"status": "running", "progress": 90, "perf": 70}
+        Here we send `perf` = rounded tokens_per_second (fallback to NaN).
+        """
+        status_override = metrics.get("_status") if isinstance(metrics, dict) else None
+        perf_val = metrics.get("tokens_per_second") if isinstance(metrics, dict) else None
+        if perf_val is None:
+            perf_val = float("nan")
+        else:
+            try:
+                perf_val = int(round(perf_val))
+            except Exception:
+                perf_val = float("nan")
+        payload: Dict[str, Any] = {"status": status_override or "running", "run_id": self.run_id, "perf": perf_val}
         self._send_json(self.progress_url, payload, method="post")
 
     def _format_xboundary_report(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -191,7 +287,312 @@ class _WebhookSink:
                 else:
                     flat_metrics[prefix] = _to_int(layer_metrics)
 
-        return {"jobId": str(self.run_id), "passRate": 33, "risk": 1, "result": flat_metrics}
+        return self._sanitize_numbers({"jobId": str(self.run_id), "passRate": 33, "risk": 1, "result": flat_metrics})
+
+    def _sanitize_numbers(self, value: Any) -> Any:
+        """
+        Recursively replace NaN/Inf with None for JSON/DB safety (e.g., MongoDB).
+        """
+        try:
+            import math
+        except Exception:
+            math = None  # pragma: no cover
+
+        if isinstance(value, dict):
+            return {k: self._sanitize_numbers(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._sanitize_numbers(v) for v in value]
+        if isinstance(value, tuple):
+            return tuple(self._sanitize_numbers(v) for v in value)
+        if isinstance(value, float):
+            if math and (math.isnan(value) or math.isinf(value)):  # type: ignore[arg-type]
+                return None
+        return value
+
+    def _prune_nones(self, value: Any) -> Any:
+        """
+        Recursively drop keys/list-items that are None; keep False/0 intact.
+        Retains empty dicts/lists so that expected shapes stay defined for clients.
+        """
+        if isinstance(value, dict):
+            pruned = {k: self._prune_nones(v) for k, v in value.items() if v is not None}
+            return {k: v for k, v in pruned.items() if v is not None}
+        if isinstance(value, list):
+            pruned_list = [self._prune_nones(v) for v in value if v is not None]
+            return pruned_list
+        if isinstance(value, tuple):
+            pruned_tuple = tuple(v for v in (self._prune_nones(v) for v in value) if v is not None)
+            return pruned_tuple
+        return value
+
+    @staticmethod
+    def _format_overall_number(value: Any) -> Any:
+        """
+        Format overall metrics:
+        - Round to 2 decimal places for normal magnitudes.
+        - If 0 < abs(value) < 0.01, emit a scientific-notation string.
+        - Leave non-numeric types unchanged.
+        """
+        if isinstance(value, (int, float)):
+            try:
+                if math.isnan(value) or math.isinf(value):
+                    return value
+            except Exception:  # pragma: no cover
+                return value
+            if value != 0 and abs(value) < 0.01:
+                return f"{value:.2e}"
+            return round(value, 2)
+        return value
+
+    def _format_diagnosis_report(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Build a consolidated diagnosis payload across evaluators.
+
+        Expected shape (example):
+            {
+                "jobId": "...",
+                "type": "diagnosis",
+                "results": [
+                    {"name": "x-boundary", "metrics": [{"layer": 9, "metric": {...}}, ...]},
+                    {"name": "tellme", "metrics": {"r_diff": ..., "distances": {...}}},
+                    {"name": "spin", "metrics": {...}},  # optional / placeholder
+                ],
+            }
+        """
+        if not isinstance(result, dict):
+            result = {}
+
+        run_id = str(result.get("run_id") or self.run_id)
+        models = result.get("models") or []
+        if not isinstance(models, list) or not models:
+            models = []
+
+        # Use the first model's evaluations for the report (single-model runs are common).
+        evaluations: List[Dict[str, Any]] = []
+        if models:
+            model_entry = models[0] or {}
+            evals = model_entry.get("evaluations") or []
+            if isinstance(evals, list):
+                evaluations = evals
+
+        def _find_eval(matchers: List[str]) -> Optional[Dict[str, Any]]:
+            lowered = [m.lower() for m in matchers]
+            for ev in evaluations:
+                meta = ev.get("evaluator") or {}
+                ev_type = str(meta.get("type") or "").lower()
+                ev_id = str(meta.get("id") or "").lower()
+                if ev_type in lowered or ev_id in lowered:
+                    return ev
+            return None
+
+        results_payload: List[Dict[str, Any]] = []
+
+        # X-Boundary → per-layer table (layer + metrics on same row).
+        xb_eval = _find_eval(["xboundary", "x-boundary"])
+        if xb_eval:
+            xb_results = xb_eval.get("results") or {}
+            xb_metrics = xb_results.get("metrics") or {}
+            per_layer = xb_metrics.get("per_layer") or xb_results.get("metrics_by_layer") or {}
+            layer_rows: List[Dict[str, Any]] = []
+            if isinstance(per_layer, dict):
+                try:
+                    sorted_items = sorted(
+                        per_layer.items(),
+                        key=lambda kv: float(kv[0]) if str(kv[0]).replace(".", "", 1).isdigit() else str(kv[0]),
+                    )
+                except Exception:
+                    sorted_items = list(per_layer.items())
+                for layer_key, metric in sorted_items:
+                    if not isinstance(metric, dict):
+                        continue
+                    try:
+                        layer_idx: Union[int, str] = int(layer_key)
+                    except Exception:
+                        layer_idx = layer_key
+                    row = {"layer": layer_idx}
+                    for mk, mv in metric.items():
+                        if mk == "details" and isinstance(mv, dict):
+                            for dk, dv in mv.items():
+                                row[dk] = dv
+                        else:
+                            row[mk] = mv
+                    layer_rows.append(self._sanitize_numbers(row))
+            if layer_rows:
+                separation_scores: List[float] = [
+                    float(r["separation_score"])
+                    for r in layer_rows
+                    if isinstance(r, dict)
+                    and "separation_score" in r
+                    and isinstance(r.get("separation_score"), (int, float))
+                ]
+                metrics = {"table": layer_rows}
+                if separation_scores:
+                    avg = sum(separation_scores) / len(separation_scores)
+                    metrics["overall"] = {"separation_score_avg": self._format_overall_number(avg)}
+                results_payload.append(
+                    {
+                        "name": (xb_eval.get("evaluator") or {}).get("id") or "x-boundary",
+                        "metrics": metrics,
+                    }
+                )
+
+        # TELLME → aggregate metrics flattened into a single-row table (no nested distances).
+        tm_eval = _find_eval(["tellme"])
+        if tm_eval:
+            tm_results = tm_eval.get("results") or {}
+            tm_metrics = tm_results.get("metrics") or {}
+            if isinstance(tm_metrics, dict) and tm_metrics:
+                tellme_row = self._sanitize_numbers(
+                    {
+                        "r_diff": tm_metrics.get("R_diff") if "R_diff" in tm_metrics else tm_metrics.get("r_diff"),
+                        "r_same": tm_metrics.get("R_same") if "R_same" in tm_metrics else tm_metrics.get("r_same"),
+                        "r_gap": tm_metrics.get("R_gap") if "R_gap" in tm_metrics else tm_metrics.get("r_gap"),
+                        "erank": tm_metrics.get("erank"),
+                        "cos_sim": tm_metrics.get("cos_sim"),
+                        "pcc": tm_metrics.get("pcc"),
+                        "l1": tm_metrics.get("L1") if "L1" in tm_metrics else tm_metrics.get("l1"),
+                        "l2": tm_metrics.get("L2") if "L2" in tm_metrics else tm_metrics.get("l2"),
+                        "hausdorff": tm_metrics.get("hausdorff"),
+                    }
+                )
+                if tellme_row:
+                    results_payload.append(
+                        {
+                            "name": (tm_eval.get("evaluator") or {}).get("id") or "tellme",
+                            "metrics": {"table": [tellme_row]},
+                        }
+                    )
+
+        # SPIN → use evaluator output: overall fairness–privacy coupling ratio and per-layer ratios (bar chart).
+        spin_eval = _find_eval(["spin"])
+        if spin_eval:
+            spin_results = spin_eval.get("results") or {}
+            spin_totals = spin_results.get("totals") or {}
+            spin_layers = spin_results.get("layers") or []
+
+            overall_ratio = spin_totals.get("fairness_privacy_neurons_coupling_ratio")
+            spin_row = {"fairness_privacy_neurons_coupling_ratio": overall_ratio}
+            spin_overall = (
+                {"fairness_privacy_neurons_coupling_ratio": self._format_overall_number(overall_ratio)}
+                if overall_ratio is not None
+                else {}
+            )
+
+            layer_ratios: List[Any] = []
+            if isinstance(spin_layers, list):
+                # Preserve layer order by sorting on layer_idx when available.
+                def _layer_idx(entry: Dict[str, Any]) -> Any:
+                    try:
+                        return int(entry.get("layer_idx"))
+                    except Exception:
+                        return entry.get("layer_idx")
+
+                for layer_entry in sorted(spin_layers, key=_layer_idx):
+                    ratio = layer_entry.get("fairness_privacy_neurons_coupling_ratio")
+                    layer_ratios.append(ratio)
+
+            spin_metrics: Dict[str, Any] = {"table": [self._sanitize_numbers(spin_row)]}
+            if spin_overall:
+                spin_metrics["overall"] = self._sanitize_numbers(spin_overall)
+            if layer_ratios:
+                spin_metrics.setdefault("charts", []).append({"type": "bar", "data": self._sanitize_numbers(layer_ratios)})
+
+            results_payload.append(
+                {
+                    "name": (spin_eval.get("evaluator") or {}).get("id") or "spin",
+                    "metrics": spin_metrics,
+                }
+            )
+
+        # MI-PEAKS → dummy hard-coded line chart.
+        line_chart = [
+            0.08,
+            0.12,
+            0.55,
+            0.14,
+            0.09,
+            0.11,
+            0.78,
+            0.13,
+            0.1,
+            0.07,
+            0.62,
+            0.16,
+            0.19,
+            0.09,
+            0.11,
+            0.83,
+            0.15,
+            0.1,
+            0.08,
+            0.07,
+            0.52,
+            0.12,
+            0.11,
+            0.15,
+            0.09,
+            0.68,
+            0.17,
+            0.1,
+            0.08,
+            0.06,
+            0.58,
+            0.13,
+            0.1,
+            0.11,
+            0.09,
+            0.74,
+            0.14,
+            0.1,
+            0.09,
+            0.08,
+            0.65,
+            0.18,
+            0.12,
+            0.09,
+            0.1,
+            0.81,
+            0.16,
+            0.1,
+            0.09,
+            0.07,
+            0.57,
+            0.14,
+            0.11,
+            0.13,
+            0.1,
+            0.69,
+            0.17,
+            0.1,
+            0.08,
+            0.07,
+            0.91,
+            0.2,
+            0.12,
+            0.1,
+            0.11,
+            0.77,
+            0.15,
+            0.09,
+            0.08,
+            0.06,
+            0.63,
+            0.13,
+            0.11,
+            0.12,
+            0.09,
+            0.7,
+            0.16,
+            0.1,
+            0.08,
+            0.07,
+        ]
+        results_payload.append({"name": "mi-peaks", "metrics": {"charts": [{"type": "line", "data": line_chart}]}})
+
+        if not results_payload:
+            return None
+
+        return self._sanitize_numbers({"jobId": run_id, "type": "diagnosis", "results": results_payload})
 
     @staticmethod
     def _percent(completed: int, total: Optional[int]) -> Optional[float]:
@@ -216,9 +617,85 @@ class _WebhookSink:
 
     def on_result(self, result: Dict[str, Any]) -> None:
         """Send final result payload to a (possibly different) endpoint."""
-        payload = self._format_xboundary_report(result) or {"status": "complete", "run_id": self.run_id, "result": result}
+        payload = self._format_diagnosis_report(result) or self._format_xboundary_report(result) or {
+            "status": "complete",
+            "run_id": self.run_id,
+            "result": result,
+        }
+        # Emit a concise payload snapshot for visibility (always INFO-level).
+        log_payload = payload
+        if isinstance(log_payload, dict):
+            # Avoid logging the potentially huge raw result fallback.
+            log_payload = {k: v for k, v in log_payload.items() if k != "result"}
+        try:
+            logging.info(
+                "Webhook payload (type=%s): %s",
+                log_payload.get("type") if isinstance(log_payload, dict) else None,
+                json.dumps(log_payload, ensure_ascii=False, default=str),
+            )
+        except Exception:
+            logging.info("Webhook payload (non-serializable).")
         # Result webhook requires PUT (per consumer contract); fall back to progress URL when result URL missing.
         self._send_json(self.result_url or self.progress_url, payload, method="put")
+
+
+class _WebhookLogSink:
+    """Minimal webhook sink for plain text log messages."""
+
+    def __init__(
+        self,
+        url: str,
+        run_id: str,
+        timeout: float = 0.5,
+        append_run_id_query: bool = True,
+    ):
+        self.url = self._with_run_id(url, run_id) if append_run_id_query else url
+        self.run_id = run_id
+        self.timeout = timeout
+        try:
+            import requests  # type: ignore
+
+            self._requests = requests
+        except Exception:
+            self._requests = None
+            logging.warning("requests is not installed; log webhook disabled.")
+
+    def _with_run_id(self, base_url: Optional[str], run_id: str) -> Optional[str]:
+        if not base_url:
+            return None
+        try:
+            parsed = urlsplit(base_url)
+            query_pairs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            if run_id:
+                query_pairs["jobId"] = run_id
+                query_pairs["_id"] = run_id
+            query = urlencode(query_pairs)
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment))
+        except Exception:
+            suffix = f"?jobId={run_id}&_id={run_id}" if run_id else ""
+            return f"{base_url}{suffix}"
+
+    def _send_json(self, url: Optional[str], payload: Dict[str, Any]) -> None:
+        if self._requests is None or not url:
+            return
+        try:
+            # Fire-and-forget to avoid blocking the main flow.
+            import threading
+
+            _WebhookSink._log_payload(url, payload, method="post")
+            threading.Thread(
+                target=self._requests.request,
+                kwargs={"method": "post", "url": url, "json": payload, "timeout": self.timeout},
+                daemon=True,
+            ).start()
+        except Exception:
+            logging.debug("Log webhook post failed.", exc_info=True)
+
+    def log(self, message: str) -> None:
+        if not message:
+            return
+        payload = {"jobId": str(self.run_id), "log": str(message)}
+        self._send_json(self.url, payload)
 
 
 class _PipelineProgressAdapter:
@@ -305,6 +782,9 @@ class _PipelineProgressAdapter:
     def on_result(self, result: Dict[str, Any]) -> None:
         self._call_sink("on_result", result)
 
+    def on_throughput(self, metrics: Dict[str, Any]) -> None:
+        self._call_sink("on_throughput", metrics)
+
 
 class _PhaseProgressAdapter:
     """
@@ -344,6 +824,10 @@ class _PhaseProgressAdapter:
             fn(*args)
         except Exception:
             logging.debug("Progress sink call failed", exc_info=True)
+
+    def on_throughput(self, metrics: Dict[str, Any]) -> None:
+        """Forward throughput updates without phase scaling."""
+        self._call("on_throughput", metrics)
 
     def _effective_phase_total(self, total: Optional[int]) -> Optional[int]:
         if self.phase_total is not None:
@@ -419,6 +903,7 @@ def run_from_config(
     on_progress_update: Optional[Callable[[int, Optional[int], str], None]] = None,
     on_progress_done: Optional[Callable[[int, Optional[int], str], None]] = None,
     progress_webhook: Optional[str] = None,
+    log_webhook: Optional[str] = None,
     result_webhook: Optional[str] = None,
     webhook_config: Optional[Union[str, Dict[str, Any], ConfigLoader]] = None,
     append_run_id_query: Optional[bool] = None,
@@ -460,10 +945,12 @@ def run_from_config(
     webhook_cfg = _as_optional_config_dict(webhook_config)
     cfg_progress_webhook = cfg.get("progress_webhook")
     cfg_result_webhook = cfg.get("result_webhook")
+    cfg_log_webhook = cfg.get("log_webhook")
     cfg_append_run_id_query = cfg.get("append_run_id_query")
     cfg_progress_equalize = cfg.get("progress_equalize_evaluators")
     wh_progress_webhook = webhook_cfg.get("progress_webhook")
     wh_result_webhook = webhook_cfg.get("result_webhook")
+    wh_log_webhook = webhook_cfg.get("log_webhook")
     wh_append_run_id_query = webhook_cfg.get("append_run_id_query")
     model_cfg_raw = cfg.get("model", {}) or {}
     models_cfg = model_cfg_raw if isinstance(model_cfg_raw, list) else [model_cfg_raw]
@@ -562,6 +1049,7 @@ def run_from_config(
     # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
     resolved_progress_webhook = progress_webhook or wh_progress_webhook or cfg_progress_webhook
+    resolved_log_webhook = log_webhook or wh_log_webhook or cfg_log_webhook
     resolved_result_webhook = result_webhook or wh_result_webhook or cfg_result_webhook
     resolved_append_run_id_query = (
         append_run_id_query
@@ -586,17 +1074,23 @@ def run_from_config(
         except Exception:
             return None
 
-    inferred_run_id = _extract_id_from_url(resolved_progress_webhook) or _extract_id_from_url(
-        resolved_result_webhook
+    inferred_run_id = (
+        _extract_id_from_url(resolved_progress_webhook)
+        or _extract_id_from_url(resolved_result_webhook)
+        or _extract_id_from_url(resolved_log_webhook)
     )
     run_identifier = run_id or inferred_run_id
     if not run_identifier:
         raise ValueError(
-            "A run/job id is required. Provide --run-id or include `_id=<job_id>` in the progress/result webhook URL."
+            "A run/job id is required. Provide --run-id or include `_id=<job_id>` in the progress/result/log webhook URL."
         )
     timestamp = datetime.now(timezone.utc).isoformat()
     run_dir = resolved_output_dir / run_identifier
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    log_sink = None
+    if resolved_log_webhook:
+        log_sink = _WebhookLogSink(resolved_log_webhook, run_identifier, append_run_id_query=resolved_append_run_id_query)
 
     all_models_results = []
 
@@ -611,6 +1105,79 @@ def run_from_config(
         )
     progress_adapter = _PipelineProgressAdapter(effective_sink) if effective_sink is not None else None
     sink_for_callbacks = progress_adapter or effective_sink
+    throughput_tracker = TokenThroughputTracker(sink=sink_for_callbacks)
+    try:
+        # Initialize UI with a zero-rate snapshot before any tokens flow.
+        throughput_tracker.emit_zero_rate(status="running")
+    except Exception:
+        logging.debug("Initial throughput zero emission failed", exc_info=True)
+
+    model_summaries = [
+        str(m.get("run_name") or m.get("model_name") or m.get("generation") or m.get("name") or "model")
+        for m in models_cfg
+    ]
+    evaluator_summaries = [str(e.get("run_name") or e.get("type") or f"eval_{i}") for i, e in enumerate(evaluator_cfgs)]
+    dataset_summaries = dataset_names or [dataset_cfg.get("name") or "dataset"]
+
+    def _run_summary_message() -> str:
+        return (
+            "Job summary | "
+            f"run_id={run_identifier} | "
+            f"datasets={', '.join(dataset_summaries)} | "
+            f"evaluators={', '.join(evaluator_summaries)} | "
+            f"models={', '.join(model_summaries)} | "
+            f"output_dir={run_dir} | "
+            f"progress_webhook={'on' if resolved_progress_webhook else 'off'} | "
+            f"log_webhook={'on' if resolved_log_webhook else 'off'} | "
+            f"result_webhook={'on' if resolved_result_webhook else 'off'}"
+        )
+
+    def _emit_log(message: str) -> None:
+        if not message:
+            return
+        logging.info(message)
+        if log_sink is None:
+            return
+        try:
+            log_sink.log(message)
+        except Exception:
+            logging.debug("Log sink call failed", exc_info=True)
+
+    _emit_log(
+        (
+            f"Run {run_identifier} started | "
+            f"datasets: {', '.join(dataset_summaries)} | "
+            f"evaluators: {', '.join(evaluator_summaries)} | "
+            f"models: {', '.join(model_summaries)}"
+        )
+    )
+    _emit_log(_run_summary_message())
+
+    # Emit a best-effort snapshot of the run configuration before work starts.
+    if isinstance(effective_sink, _WebhookSink):
+        try:
+            snapshot_payload = {
+                "timestamp": timestamp,
+                "run_id": run_identifier,
+                "datasets": dataset_summaries,
+                "evaluators": evaluator_summaries,
+                "models": model_summaries,
+                "output_dir": str(run_dir.resolve()),
+                "webhooks": {
+                    "progress": bool(resolved_progress_webhook),
+                    "log": bool(resolved_log_webhook),
+                    "result": bool(resolved_result_webhook),
+                },
+                "config": cfg.to_dict(),
+            }
+            snapshot_message = (
+                f"Starting run {run_identifier} with datasets "
+                f"{', '.join(dataset_summaries)} using evaluators "
+                f"{', '.join(evaluator_summaries)} and models {', '.join(model_summaries)}."
+            )
+            effective_sink.post_snapshot(snapshot_payload, message=snapshot_message)
+        except Exception:
+            logging.debug("Progress snapshot webhook failed", exc_info=True)
 
     # Only use explicit callbacks when provided; sink methods remain available.
     cb_start = on_progress_start
@@ -643,13 +1210,19 @@ def run_from_config(
         if target_sink is not None and hasattr(target_sink, "on_done"):
             _safe_call(getattr(target_sink, "on_done"), completed, total, desc)
 
+    _emit_log("Preparing dataset (warming up caches and computing totals)")
     _emit_update(0, None, "preparing dataset")
     # Prepare evaluators (support multiple evaluators run linearly).
     evaluator_specs: List[Dict[str, Any]] = []
     for idx, e_cfg in enumerate(evaluator_cfgs):
         e_type = str(e_cfg.get("type"))
         e_run_name = e_cfg.get("run_name")
-        e_id = str(e_run_name or e_type)
+        # Ensure SPIN gets a stable default run name when none is provided.
+        if not e_run_name and e_type == "spin":
+            e_run_name = "spin"
+            e_cfg["run_name"] = e_run_name
+
+        e_id = str(e_run_name or e_type or f"eval_{idx}")
         if any(spec.get("id") == e_id for spec in evaluator_specs):
             e_id = f"{e_id}_{idx}"
         evaluator_kwargs = {
@@ -689,6 +1262,40 @@ def run_from_config(
         dataset_cache[key] = (ds, ds_total)
         return ds, ds_total
 
+    def _estimate_spin_total(
+        dataset: Any,
+        evaluator_cfg: Dict[str, Any],
+        model_obj: Any,
+    ) -> Optional[int]:
+        """
+        Best-effort progress total for SPIN.
+
+        SPIN progress updates once per (layer, batch) pair, so total steps are:
+        num_layers * (len(dataset1) + len(dataset2)).
+        """
+        try:
+            hf_model = getattr(model_obj, "model", model_obj)
+            num_layers = getattr(getattr(hf_model, "config", None), "num_hidden_layers", None)
+            if not isinstance(num_layers, int) or num_layers <= 0:
+                return None
+            if not isinstance(dataset, dict):
+                return None
+            # spin/csv_bundle returns {"paths": {"dataset1": ..., "dataset2": ...}}
+            if "paths" in dataset:
+                nsamples = evaluator_cfg.get("nsamples") or evaluator_cfg.get("samples")
+                if isinstance(nsamples, int) and nsamples > 0:
+                    return num_layers * (int(nsamples) * 2)
+                return None
+            d1_key = evaluator_cfg.get("dataset1_key") or "dataset1"
+            d2_key = evaluator_cfg.get("dataset2_key") or "dataset2"
+            d1 = dataset.get(d1_key)
+            d2 = dataset.get(d2_key)
+            if isinstance(d1, list) and isinstance(d2, list):
+                return num_layers * (len(d1) + len(d2))
+        except Exception:
+            return None
+        return None
+
     # Pre-load datasets to establish global totals for progress scaling.
     phase_totals: List[Optional[int]] = []
     for spec in evaluator_specs:
@@ -713,6 +1320,7 @@ def run_from_config(
             phase_offsets = [None] * len(phase_totals)
 
     # Prime progress with the first evaluator's dataset for "dataset ready" feedback.
+    n_evaluators = len(evaluator_specs)
     first_dataset_cfg = evaluator_specs[0]["dataset_cfg"]
     try:
         first_dataset, first_dataset_total = _load_dataset(first_dataset_cfg)
@@ -720,8 +1328,13 @@ def run_from_config(
             progress_adapter.set_eval_total(global_eval_total or first_dataset_total)
         if first_dataset_total is not None:
             logging.info("Loaded dataset '%s' with %d examples", first_dataset_cfg.get("name"), first_dataset_total)
+            _emit_log(
+                f"Dataset ready: {first_dataset_cfg.get('name')} "
+                f"({first_dataset_total} examples, phases={n_evaluators})"
+            )
             _emit_update(0, first_dataset_total, "dataset ready")
         else:
+            _emit_log(f"Dataset ready: {first_dataset_cfg.get('name')} (example count unknown)")
             _emit_update(0, None, "dataset ready")
     except Exception:
         raise
@@ -732,6 +1345,10 @@ def run_from_config(
         model_name = m_cfg.get("model_name")
         model_kwargs = {k: v for k, v in m_cfg.items() if k not in {"generation", "model_name", "name", "run_name"}}
         model_label = m_cfg.get("run_name") or model_name or model_key
+        _emit_log(
+            f"[Model] Loading {model_label} "
+            f"(registry_key={model_key}, model_name={model_name or 'unknown'}, evaluators={n_evaluators})"
+        )
         if progress_adapter is not None:
             progress_adapter.mark_model_preload(f"loading model {model_label}")
         _emit_update(0, None, f"loading model {model_label}")
@@ -739,6 +1356,7 @@ def run_from_config(
         if progress_adapter is not None:
             progress_adapter.mark_model_loaded(f"model ready {model_label}")
         _emit_update(0, None, f"model ready {model_label}")
+        _emit_log(f"[Model] Ready {model_label} (registry_key={model_key})")
 
         model_id = m_cfg.get("run_name") or model_name or model_key
         model_dir = run_dir / model_id
@@ -755,6 +1373,10 @@ def run_from_config(
             evaluator_dir.mkdir(parents=True, exist_ok=True)
 
             dataset_for_eval, dataset_total = _load_dataset(spec["dataset_cfg"])
+            if e_type == "spin":
+                spin_total = _estimate_spin_total(dataset_for_eval, spec.get("config") or {}, model)
+                if spin_total is not None:
+                    dataset_total = spin_total
             if progress_adapter is not None:
                 progress_adapter.set_eval_total(global_eval_total or dataset_total)
 
@@ -840,7 +1462,13 @@ def run_from_config(
                     if _idx == n_evaluators - 1:
                         _safe_call(cb_done, _global_total, _global_total, desc)
 
-            _emit_update(0, dataset_total, f"running evaluator {e_id} on {model_label}")
+            _emit_log(
+                f"[Eval:{e_id}] Start on {model_label} "
+                f"(type={e_type}, dataset={spec['dataset_cfg'].get('name')}, total={dataset_total or 'unknown'})"
+            )
+            # Avoid resetting progress when multiple evaluators share one stream.
+            if n_evaluators <= 1 or e_idx == 0 or progress_adapter is None:
+                _emit_update(0, dataset_total, f"running evaluator {e_id} on {model_label}")
 
             raw_results = evaluator.evaluate(
                 model,
@@ -850,6 +1478,7 @@ def run_from_config(
                 on_progress_start=_phase_start if cb_start is not None else None,
                 on_progress_update=_phase_update if cb_update is not None else None,
                 on_progress_done=_phase_done if cb_done is not None else None,
+                throughput_tracker=throughput_tracker,
             )
 
             evaluator_payload = {
@@ -926,6 +1555,15 @@ def run_from_config(
                 }
             )
             results_by_evaluator[e_id] = raw_results
+            _emit_log(
+                f"[Eval:{e_id}] Finished on {model_label} "
+                f"(results saved to {evaluator_results_path.relative_to(run_dir)})"
+            )
+            # Reset throughput to zero after each evaluator to avoid stale rates.
+            try:
+                throughput_tracker.emit_zero_rate(status="running")
+            except Exception:
+                logging.debug("Throughput idle emission failed", exc_info=True)
 
         per_model_payload = {
             "run_id": run_identifier,
@@ -959,6 +1597,15 @@ def run_from_config(
             }
         )
 
+    throughput_summary = throughput_tracker.snapshot()
+
+    status_text = (
+        f"Run {run_identifier} completed successfully on {', '.join(dataset_summaries)} "
+        f"using evaluators {', '.join(evaluator_summaries)} and models {', '.join(model_summaries)}. "
+        f"Processed approximately {throughput_summary.get('tokens', 0)} tokens "
+        f"(avg {round(throughput_summary.get('tokens_per_second_avg', 0.0), 2)} tokens/sec)."
+    )
+
     # Run-level summary
     wrapped = {
         "run_id": run_identifier,
@@ -966,6 +1613,8 @@ def run_from_config(
         "dataset": {"name": first_dataset_cfg.get("name"), "config": first_dataset_cfg},
         "evaluators": [{"id": s["id"], "type": s["type"], "config": s.get("config") or {}} for s in evaluator_specs],
         "models": all_models_results,
+        "throughput": throughput_summary,
+        "status_text": status_text,
     }
 
     # Optional summarization stage (writes `summary.json` and `summary.md` to run_dir)
@@ -998,7 +1647,36 @@ def run_from_config(
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump(cfg.to_dict(), f, indent=2, ensure_ascii=False)
 
+    _emit_log(
+        f"Run {run_identifier} completed | "
+        f"models={len(all_models_results)} | evaluators={n_evaluators} | "
+        f"throughput tokens={throughput_summary.get('tokens')} "
+        f"tps_avg={round(throughput_summary.get('tokens_per_second_avg', 0), 2)}"
+    )
+
     # Final webhook for results if enabled (allows distinct endpoint from progress).
+    throughput_tracker.finalize(status="complete")
+    try:
+        # Emit an explicit zero-rate payload at the very end to clear UI displays.
+        throughput_tracker.emit_zero_rate(status="complete")
+    except Exception:
+        logging.debug("Final throughput idle emission failed", exc_info=True)
+    if isinstance(effective_sink, _WebhookSink):
+        try:
+            effective_sink.post_status_message(
+                status_text,
+                status="complete",
+                progress=100.0,
+                extra={
+                    "throughput": throughput_summary,
+                    "artifacts": {
+                        "results": str(results_path.resolve()),
+                        "summary": str((run_dir / "summary.json").resolve()),
+                    },
+                },
+            )
+        except Exception:
+            logging.debug("Completion status webhook failed", exc_info=True)
     target_sink = sink_for_callbacks
     if target_sink is not None and hasattr(target_sink, "on_result"):
         _safe_call(getattr(target_sink, "on_result"), wrapped)
@@ -1039,6 +1717,11 @@ def _parse_args() -> argparse.Namespace:
         help="Optional URL to POST progress updates (appends ?_id=<run_id> and sends status/progress JSON).",
     )
     parser.add_argument(
+        "--log-webhook",
+        default=None,
+        help="Optional URL to POST plain log lines (appends ?jobId=<run_id>).",
+    )
+    parser.add_argument(
         "--result-webhook",
         default=None,
         help="Optional URL to POST final result payload (appends ?_id=<run_id>). Defaults to progress webhook when omitted.",
@@ -1060,6 +1743,7 @@ def _cli() -> None:
         output_dir=args.output_dir,
         run_id=args.run_id,
         progress_webhook=args.progress_webhook,
+        log_webhook=args.log_webhook,
         result_webhook=args.result_webhook,
         webhook_config=args.webhook_config,
     )
@@ -1070,8 +1754,6 @@ def _cli() -> None:
         with open(args.output, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         logging.info("Saved results to %s", args.output)
-    else:
-        print(json.dumps(results, indent=2, default=str))
 
 
 if __name__ == "__main__":  # pragma: no cover

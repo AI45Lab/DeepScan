@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from llm_diagnose.evaluators.base import BaseEvaluator
+from llm_diagnose.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
 from llm_diagnose.utils.progress import ProgressReporter
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,7 @@ def _extract_hidden_embeddings(
     target_layers: List[int],
     device: Any,
     progress: Optional[ProgressReporter] = None,
+    throughput_tracker: Optional[TokenThroughputTracker] = None,
 ) -> Tuple[Dict[int, Any], Any]:
     torch_mod = _require_torch()
     np = _require_numpy()
@@ -190,6 +192,8 @@ def _extract_hidden_embeddings(
                 layer_buffers[layer_idx].append(pooled.detach().cpu().numpy())
 
             all_labels.extend(labels)
+            if throughput_tracker is not None:
+                throughput_tracker.add_batch(batch)
             if progress is not None:
                 progress.update(len(labels))
 
@@ -338,6 +342,7 @@ class XBoundaryEvaluator(BaseEvaluator):
                 target_layers=target_layers,
                 device=device,
                 progress=progress,
+                throughput_tracker=kwargs.get("throughput_tracker"),
             )
 
         metrics_by_layer: Dict[int, Any] = {}
