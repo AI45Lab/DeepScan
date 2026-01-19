@@ -111,27 +111,6 @@ def test_webhook_sink_formats_diagnosis_report() -> None:
     assert line_chart[-1] == 0.07
 
 
-def test_webhook_sink_posts_snapshot() -> None:
-    captured = {}
-    sink = _WebhookSink("http://example.com/progress", "job-999")
-
-    def _fake_send(url, payload, method="post"):  # type: ignore[no-untyped-def]
-        captured["url"] = url
-        captured["payload"] = payload
-        captured["method"] = method
-
-    sink._send_json = _fake_send  # type: ignore[assignment]
-    sink.post_snapshot({"a": 1, "nested": {"b": None}}, message="starting run")
-
-    assert "jobId=job-999" in captured["url"]
-    assert captured["method"] == "post"
-    assert captured["payload"]["type"] == "run.snapshot"
-    assert captured["payload"]["status"] == "pending"
-    assert captured["payload"]["run_id"] == "job-999"
-    assert captured["payload"]["message"] == "starting run"
-    assert captured["payload"]["snapshot"] == {"a": 1, "nested": {}}
-
-
 def test_webhook_sink_posts_status_message() -> None:
     captured = {}
     sink = _WebhookSink("http://example.com/progress", "job-777")
@@ -142,13 +121,13 @@ def test_webhook_sink_posts_status_message() -> None:
         captured["method"] = method
 
     sink._send_json = _fake_send  # type: ignore[assignment]
-    sink.post_status_message("all done", status="complete", progress=100.0, extra={"tokens": 10})
+    sink.post_status_message(
+        "all done",
+        status="complete",
+        progress=100.0,
+        extra={"throughput": {"tokens_per_second": 70}},
+    )
 
     assert "jobId=job-777" in captured["url"]
     assert captured["method"] == "post"
-    assert captured["payload"]["type"] == "run.completed"
-    assert captured["payload"]["status"] == "complete"
-    assert captured["payload"]["run_id"] == "job-777"
-    assert captured["payload"]["message"] == "all done"
-    assert captured["payload"]["progress"] == 100.0
-    assert captured["payload"]["extra"] == {"tokens": 10}
+    assert captured["payload"] == {"status": "complete", "progress": 100.0, "perf": 70}

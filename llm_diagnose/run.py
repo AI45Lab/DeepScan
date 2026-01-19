@@ -139,26 +139,12 @@ class _WebhookSink:
             _webhook_logger.info("Webhook send | method=%s | url=%s | payload=<unserializable>", method, url)
 
     def _post_progress(self, *, status: str, progress: Optional[float], pass_rate: Optional[float] = None) -> None:
-        payload: Dict[str, Any] = {"status": status, "run_id": self.run_id}
+        # Keep the progress webhook payload minimal: only status/progress/perf.
+        # (run_id is already conveyed via the URL query string; message/type are omitted)
+        payload: Dict[str, Any] = {"status": status}
         if progress is not None:
             payload["progress"] = progress
-        if pass_rate is not None:
-            payload["passRate"] = pass_rate
-        self._send_json(self.progress_url, payload, method="post")
-
-    def post_snapshot(self, snapshot: Dict[str, Any], message: Optional[str] = None) -> None:
-        """
-        Send a one-time payload snapshot before execution starts.
-        Keeps the schema backward compatible by reusing the progress webhook.
-        """
-        safe_snapshot = self._prune_nones(self._sanitize_numbers(snapshot or {}))
-        payload: Dict[str, Any] = {
-            "type": "run.snapshot",
-            "status": "pending",
-            "run_id": self.run_id,
-            "message": message or f"Run {self.run_id} is starting.",
-            "snapshot": safe_snapshot,
-        }
+        # pass_rate kept for backward-compat signature but intentionally not emitted.
         self._send_json(self.progress_url, payload, method="post")
 
     def post_status_message(
@@ -172,18 +158,27 @@ class _WebhookSink:
         """
         Send a natural-language status update (typically at completion).
         """
-        if not message:
-            return
-        payload: Dict[str, Any] = {
-            "type": "run.completed" if status == "complete" else "run.status",
-            "status": status,
-            "run_id": self.run_id,
-            "message": message,
-        }
+        # Keep the progress webhook payload minimal: only status/progress/perf.
+        # (run_id is already conveyed via the URL query string; message/type/extra are omitted)
+        payload: Dict[str, Any] = {"status": status}
         if progress is not None:
             payload["progress"] = progress
-        if extra:
-            payload["extra"] = self._prune_nones(self._sanitize_numbers(extra))
+        # Best-effort: derive perf from throughput (when provided), but don't emit extra fields.
+        perf_val: Any = None
+        if isinstance(extra, dict):
+            throughput = extra.get("throughput")
+            if isinstance(throughput, dict):
+                # Perf is intended to be the *instant* throughput (not the global average).
+                perf_val = throughput.get("tokens_per_second")
+            # Allow direct `perf` override too.
+            if perf_val is None:
+                perf_val = extra.get("perf")
+        if perf_val is not None:
+            try:
+                payload["perf"] = int(round(float(perf_val)))
+            except Exception:
+                # If it's not numeric, omit rather than sending an invalid perf.
+                pass
         self._send_json(self.progress_url, payload, method="post")
 
     def on_throughput(self, metrics: Dict[str, Any]) -> None:
@@ -203,7 +198,8 @@ class _WebhookSink:
                 perf_val = int(round(perf_val))
             except Exception:
                 perf_val = float("nan")
-        payload: Dict[str, Any] = {"status": status_override or "running", "run_id": self.run_id, "perf": perf_val}
+        # Keep the progress webhook payload minimal: only status/progress/perf.
+        payload: Dict[str, Any] = {"status": status_override or "running", "perf": perf_val}
         self._send_json(self.progress_url, payload, method="post")
 
     def _format_xboundary_report(self, result: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -491,7 +487,9 @@ class _WebhookSink:
                     ratio = layer_entry.get("fairness_privacy_neurons_coupling_ratio")
                     layer_ratios.append(ratio)
 
-            spin_metrics: Dict[str, Any] = {"table": [self._sanitize_numbers(spin_row)]}
+            # spin_metrics: Dict[str, Any] = {"table": [self._sanitize_numbers(spin_row)]}
+            
+            spin_metrics: Dict[str, Any] = {}
             if spin_overall:
                 spin_metrics["overall"] = self._sanitize_numbers(spin_overall)
             if layer_ratios:
@@ -1152,32 +1150,6 @@ def run_from_config(
         )
     )
     _emit_log(_run_summary_message())
-
-    # Emit a best-effort snapshot of the run configuration before work starts.
-    if isinstance(effective_sink, _WebhookSink):
-        try:
-            snapshot_payload = {
-                "timestamp": timestamp,
-                "run_id": run_identifier,
-                "datasets": dataset_summaries,
-                "evaluators": evaluator_summaries,
-                "models": model_summaries,
-                "output_dir": str(run_dir.resolve()),
-                "webhooks": {
-                    "progress": bool(resolved_progress_webhook),
-                    "log": bool(resolved_log_webhook),
-                    "result": bool(resolved_result_webhook),
-                },
-                "config": cfg.to_dict(),
-            }
-            snapshot_message = (
-                f"Starting run {run_identifier} with datasets "
-                f"{', '.join(dataset_summaries)} using evaluators "
-                f"{', '.join(evaluator_summaries)} and models {', '.join(model_summaries)}."
-            )
-            effective_sink.post_snapshot(snapshot_payload, message=snapshot_message)
-        except Exception:
-            logging.debug("Progress snapshot webhook failed", exc_info=True)
 
     # Only use explicit callbacks when provided; sink methods remain available.
     cb_start = on_progress_start
