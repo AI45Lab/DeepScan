@@ -197,21 +197,24 @@ def _match_base_evaluator(base_evaluators: List[Dict[str, Any]], normalized_name
         cand_run = str(candidate.get("run_name") or "").replace("_", "-").lower()
         if normalized_name in {cand_type, cand_run} or normalized_name.replace("-", "") == cand_type.replace("-", ""):
             return copy.deepcopy(candidate)
-    return copy.deepcopy(base_evaluators[0]) if base_evaluators else {}
+    # IMPORTANT: do not fall back to "first evaluator" (it causes cross-evaluator inheritance).
+    # If there's no match, callers should start from a clean config.
+    return {}
 
 
 def _normalize_eval_name(name: str) -> str:
     lowered = str(name or "").strip().replace("_", "-").lower()
     if "xboundary" in lowered or "x-boundary" in lowered or "x_boundary" in lowered:
         return "xboundary"
+    if "mi" in lowered and "peak" in lowered:
+        return "mi-peaks"
     return lowered
 
 
 def _apply_diagnosis_overrides(base_cfg: Dict[str, Any], items: List[DiagnosisItem]) -> List[Dict[str, Any]]:
     base_evaluators = base_cfg.get("evaluators") or []
-    root_dataset = base_cfg.get("dataset") or {}
     overrides: List[Dict[str, Any]] = []
-    allowed = {"xboundary", "x-boundary", "tellme", "spin"}
+    allowed = {"xboundary", "x-boundary", "tellme", "spin", "mi-peaks"}
 
     for item in items:
         normalized = _normalize_eval_name(item.name)
@@ -219,17 +222,23 @@ def _apply_diagnosis_overrides(base_cfg: Dict[str, Any], items: List[DiagnosisIt
         if normalized not in allowed:
             continue
         base_eval = _match_base_evaluator(base_evaluators, normalized)
+        base_eval_type = str(base_eval.get("type") or "").replace("_", "-").lower()
         eval_cfg: Dict[str, Any] = base_eval or {}
         eval_cfg["type"] = "xboundary" if "xboundary" in normalized else normalized
         eval_cfg.setdefault("run_name", eval_cfg.get("run_name") or eval_cfg["type"])
-        if eval_cfg["type"] == "spin" and str(base_eval.get("type") or "").lower() != "spin":
+        if eval_cfg["type"] == "mi-peaks" and base_eval_type != "mi-peaks":
+            # Avoid inheriting unrelated evaluator knobs/datasets (e.g., tellme/xboundary) when
+            # the base config doesn't contain a MI-Peaks entry.
+            eval_cfg = {"type": "mi-peaks", "run_name": "mi-peaks"}
+        if eval_cfg["type"] == "spin" and base_eval_type != "spin":
             # Avoid inheriting a mismatched run_name when the base evaluator isn't SPIN.
             eval_cfg["run_name"] = "spin"
 
         args = item.args or {}
         target_layers = args.get("target-layers") or args.get("target_layers")
         samples = args.get("samples")
-        dataset_cfg = copy.deepcopy(eval_cfg.get("dataset") or root_dataset or {})
+        # Dataset is per-evaluator; do not inherit a root-level dataset silently.
+        dataset_cfg = copy.deepcopy(eval_cfg.get("dataset") or {})
 
         if eval_cfg["type"] == "xboundary":
             if target_layers is not None:
@@ -266,6 +275,43 @@ def _apply_diagnosis_overrides(base_cfg: Dict[str, Any], items: List[DiagnosisIt
                 eval_cfg["p"] = args.get("p")
             if args.get("target_module") is not None:
                 eval_cfg["target_module"] = args.get("target_module")
+            if dataset_cfg:
+                eval_cfg["dataset"] = dataset_cfg
+        elif eval_cfg["type"] == "mi-peaks":
+            # MI-Peaks supports evaluator-level sampling cap (`sample_num`) in addition to
+            # dataset-level truncation (`dataset.sample_num`).
+            # Ensure a MI-Peaks dataset is selected; otherwise default to the reference dataset.
+            ds_name = str((dataset_cfg or {}).get("name") or "")
+            if not ds_name or not ds_name.startswith("mi-peaks/"):
+                dataset_cfg["name"] = "mi-peaks/math_train_12k"
+
+            # Allow passing dataset loader kwargs via args.
+            for k in ("csv_path", "data_root", "problem_column", "solution_column"):
+                if args.get(k) is not None:
+                    dataset_cfg[k] = args.get(k)
+
+            # MI-Peaks original scripts typically run the last layer (e.g., 31 for 32-layer models).
+            # For API usage we default to last layer for portability, unless the caller overrides it.
+            if args.get("target_layer") is not None:
+                eval_cfg["target_layer"] = args.get("target_layer")
+            elif args.get("layers") is not None:
+                # Allow forcing explicit layer list via API.
+                eval_cfg["layers"] = args.get("layers")
+            else:
+                eval_cfg["target_layer"] = -1
+
+            sample_num = args.get("sample_num")
+            # If the caller selected MI-Peaks but didn't provide a cap, default to a small
+            # safe value for interactive use. Do not override explicit config values.
+            if sample_num is None and eval_cfg.get("sample_num") is None and isinstance(dataset_cfg, dict):
+                if dataset_cfg.get("sample_num") is None:
+                    sample_num = 10
+            if sample_num is not None:
+                eval_cfg["sample_num"] = sample_num
+                # Avoid reading a huge CSV when the user only wants a small cap.
+                # Do not override an explicit dataset.sample_num if provided.
+                if isinstance(dataset_cfg, dict) and dataset_cfg.get("sample_num") is None:
+                    dataset_cfg["sample_num"] = sample_num
             if dataset_cfg:
                 eval_cfg["dataset"] = dataset_cfg
         else:

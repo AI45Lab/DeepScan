@@ -13,7 +13,14 @@ try:
 except Exception:  # pragma: no cover
     SpinSummarizer = None  # type: ignore
 
+try:
+    from llm_diagnose.summarizers.mi_peaks import MiPeaksSummarizer
+except Exception:  # pragma: no cover
+    MiPeaksSummarizer = None  # type: ignore
+
 __all__ = ["BaseSummarizer", "SummarizerRegistry", "XBoundarySummarizer", "TellMeSummarizer", "CombinedSummarizer"]
 if SpinSummarizer is not None:  # pragma: no cover
     __all__.append("SpinSummarizer")
+if MiPeaksSummarizer is not None:  # pragma: no cover
+    __all__.append("MiPeaksSummarizer")
 

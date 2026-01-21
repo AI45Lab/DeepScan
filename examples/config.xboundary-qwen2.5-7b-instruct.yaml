@@ -4,11 +4,22 @@ model:
   device: cuda
   load_in_8bit: false
   path: /root/models/Qwen2.5-7B-Instruct
+  # Match the checkpoint's native dtype when possible; use "auto" if unsure.
+  dtype: bfloat16
+  trust_remote_code: true
+  load_tokenizer: true
+  # Reference generation parameters (deterministic)
+  generation_config:
+    do_sample: false
+    temperature: 0.0
+    top_p: 1.0
+    top_k: 0
+    repetition_penalty: 1.0
 
 dataset:
   name: xboundary/diagnostic
   # Point this at your X-Boundary `data/` folder
-  data_dir: /root/code/X-Boundary/data
+  data_dir: /root/code/LLM-Diagnose-Framework/dataset/xboundary
   num_samples_per_class: 200
 
 evaluator:

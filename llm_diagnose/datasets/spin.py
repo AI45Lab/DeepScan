@@ -26,6 +26,30 @@ class SpinCsvBundle:
     max_rows: Optional[int] = None
 
 
+def _validate_prompt_response_csv_header(path: str) -> None:
+    """
+    Validate CSV header contains required columns without requiring any non-empty rows.
+    """
+    try:
+        import csv
+    except Exception as exc:  # pragma: no cover
+        raise ImportError("CSV loader requires Python's stdlib csv module.") from exc
+
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"SPIN CSV not found: {p}")
+
+    with p.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames is None:
+            raise ValueError(f"SPIN CSV has no header row: {p}")
+        if "prompt" not in reader.fieldnames or "response" not in reader.fieldnames:
+            raise ValueError(
+                f"SPIN CSV must contain 'prompt' and 'response' columns. "
+                f"Got columns={reader.fieldnames!r} in {p}"
+            )
+
+
 def _read_prompt_response_csv(path: str, max_rows: Optional[int] = None) -> List[Dict[str, str]]:
     """
     Lightweight CSV reader fallback (only used when the evaluator wants pre-loaded rows).
@@ -71,6 +95,7 @@ def load_spin_csv_bundle(
     dataset1_name: str = "dataset1",
     dataset2_name: str = "dataset2",
     max_rows: Optional[int] = None,
+    preload: bool = False,
     **_kwargs: Any,
 ) -> Dict[str, Any]:
     """
@@ -86,6 +111,25 @@ def load_spin_csv_bundle(
         dataset2_name=str(dataset2_name),
         max_rows=max_rows,
     )
+
+    # Always validate local paths early so failures are clean and deterministic.
+    _validate_prompt_response_csv_header(bundle.dataset1_path)
+    _validate_prompt_response_csv_header(bundle.dataset2_path)
+
+    # Optional: preload rows using a lightweight stdlib CSV reader.
+    # This is helpful when you want to guarantee local path loading works even if
+    # HF `datasets` is not installed (or when debugging file/column issues).
+    if preload:
+        d1 = _read_prompt_response_csv(bundle.dataset1_path, max_rows=bundle.max_rows)
+        d2 = _read_prompt_response_csv(bundle.dataset2_path, max_rows=bundle.max_rows)
+        return {
+            "type": "spin/csv_bundle",
+            "bundle": bundle,
+            "dataset1": d1,
+            "dataset2": d2,
+            "paths": {"dataset1": bundle.dataset1_path, "dataset2": bundle.dataset2_path},
+            "preloaded": True,
+        }
 
     return {
         "type": "spin/csv_bundle",

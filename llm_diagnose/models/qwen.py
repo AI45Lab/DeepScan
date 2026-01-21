@@ -26,6 +26,38 @@ def _require_torch():
     return torch
 
 
+def _coerce_torch_dtype(value: Any) -> Any:
+    """
+    Normalize dtype values coming from YAML/JSON configs.
+
+    Transformers generally accepts `torch_dtype` as a torch.dtype or the string "auto".
+    Example configs often specify strings like "float16"/"bfloat16"; convert them to
+    actual torch dtypes for robustness across transformers versions.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"auto"}:
+            return "auto"
+        torch_mod = _require_torch()
+        mapping = {
+            "float16": torch_mod.float16,
+            "fp16": torch_mod.float16,
+            "half": torch_mod.float16,
+            "bfloat16": torch_mod.bfloat16,
+            "bf16": torch_mod.bfloat16,
+            "float32": torch_mod.float32,
+            "fp32": torch_mod.float32,
+            "float": torch_mod.float32,
+        }
+        if cleaned in mapping:
+            return mapping[cleaned]
+        # Fall back to transformers' own parsing if it supports additional strings.
+        return value
+    return value
+
+
 
 
 # Qwen model configurations organized by generation
@@ -300,11 +332,12 @@ def register_qwen_models():
                 )
             
             # Default arguments
-            torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", "auto"))
+            torch_dtype = _coerce_torch_dtype(kwargs.get("torch_dtype", kwargs.get("dtype", "auto")))
             model_kwargs = {
                 "device_map": device,
                 "torch_dtype": torch_dtype,
-                "trust_remote_code": kwargs.get("trust_remote_code", False),
+                # Qwen tokenizers/models frequently require remote code; default True for reproducibility.
+                "trust_remote_code": kwargs.get("trust_remote_code", True),
             }
             
             # Add quantization options if specified
@@ -313,7 +346,9 @@ def register_qwen_models():
             elif kwargs.get("load_in_4bit", False):
                 model_kwargs["load_in_4bit"] = True
                 if "bitsandbytes" in kwargs:
-                    model_kwargs["bnb_4bit_compute_dtype"] = kwargs.get("bnb_4bit_compute_dtype", "float16")
+                    model_kwargs["bnb_4bit_compute_dtype"] = _coerce_torch_dtype(
+                        kwargs.get("bnb_4bit_compute_dtype", "float16")
+                    )
             
             # Add any other kwargs
             for key in ["max_memory", "offload_folder", "low_cpu_mem_usage"]:
@@ -423,7 +458,7 @@ def register_qwen_models():
                 # Default arguments
                 generation_config = kwargs.pop("generation_config", None)
 
-                torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype", "auto"))
+                torch_dtype = _coerce_torch_dtype(kwargs.get("torch_dtype", kwargs.get("dtype", "auto")))
                 model_kwargs = {
                     "device_map": device,
                     "torch_dtype": torch_dtype,
@@ -436,7 +471,9 @@ def register_qwen_models():
                 elif kwargs.get("load_in_4bit", False):
                     model_kwargs["load_in_4bit"] = True
                     if "bitsandbytes" in kwargs:
-                        model_kwargs["bnb_4bit_compute_dtype"] = kwargs.get("bnb_4bit_compute_dtype", "float16")
+                        model_kwargs["bnb_4bit_compute_dtype"] = _coerce_torch_dtype(
+                            kwargs.get("bnb_4bit_compute_dtype", "float16")
+                        )
                 
                 # Add any other kwargs
                 for key in ["max_memory", "offload_folder", "low_cpu_mem_usage"]:

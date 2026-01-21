@@ -37,6 +37,13 @@ except Exception as exc:  # pragma: no cover
     SpinEvaluator = None  # type: ignore
     logger.debug("SpinEvaluator unavailable: %s", exc)
 
+# MI-Peaks evaluator is lightweight at import-time (heavy deps loaded lazily).
+try:
+    from llm_diagnose.evaluators.mi_peaks import MiPeaksEvaluator
+except Exception as exc:  # pragma: no cover
+    MiPeaksEvaluator = None  # type: ignore
+    logger.debug("MiPeaksEvaluator unavailable: %s", exc)
+
 # X-Boundary evaluator is lightweight at import-time (heavy deps loaded lazily).
 from llm_diagnose.evaluators.xboundary import XBoundaryEvaluator
 
@@ -54,4 +61,6 @@ if TellMeEvaluator is not None:  # pragma: no cover
     __all__.append("TellMeEvaluator")
 if SpinEvaluator is not None:  # pragma: no cover
     __all__.append("SpinEvaluator")
+if MiPeaksEvaluator is not None:  # pragma: no cover
+    __all__.append("MiPeaksEvaluator")
 

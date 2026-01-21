@@ -60,6 +60,12 @@ xboundary = [
     "matplotlib>=3.8",
     "seaborn>=0.12",
 ]
+mi_peaks = [
+    "torch>=2.1",
+    "transformers>=4.37",
+    "pandas>=2.1",
+    "numpy>=1.24",
+]
 all = [
     "torch>=2.1",
     "transformers>=4.37",

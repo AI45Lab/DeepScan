@@ -61,3 +61,36 @@ def test_diagnosis_overrides_mapping() -> None:
     assert tm["dataset"]["max_rows"] == 100
     assert tm["batch_size"] == 4
     assert tm["layer_ratio"] == 0.66666
+
+
+def test_diagnosis_overrides_mapping_mi_peaks_sample_num() -> None:
+    base_cfg = {
+        "model": {"generation": "qwen2.5", "model_name": "Qwen2.5-7B-Instruct"},
+        "evaluators": [
+            {"type": "mi-peaks", "run_name": "mi-peaks", "dataset": {"name": "mi-peaks/math_train_12k"}},
+        ],
+    }
+    payload = {"diagnosis": [{"name": "mi-peaks", "args": {"sample_num": 7}}]}
+    body = EvaluationCreateRequest.parse_obj(payload)
+    overrides = _apply_diagnosis_overrides(base_cfg, body.diagnosis_items())
+
+    mp = next(e for e in overrides if e["type"] == "mi-peaks")
+    assert mp["sample_num"] == 7
+    # API also mirrors this into dataset.sample_num unless explicitly set.
+    assert mp["dataset"]["sample_num"] == 7
+
+
+def test_diagnosis_overrides_mapping_mi_peaks_defaults_sample_num_10() -> None:
+    base_cfg = {
+        "model": {"generation": "qwen2.5", "model_name": "Qwen2.5-7B-Instruct"},
+        "evaluators": [
+            {"type": "mi-peaks", "run_name": "mi-peaks", "dataset": {"name": "mi-peaks/math_train_12k"}},
+        ],
+    }
+    payload = {"diagnosis": [{"name": "mi-peaks", "args": {}}]}
+    body = EvaluationCreateRequest.parse_obj(payload)
+    overrides = _apply_diagnosis_overrides(base_cfg, body.diagnosis_items())
+
+    mp = next(e for e in overrides if e["type"] == "mi-peaks")
+    assert mp["sample_num"] == 10
+    assert mp["dataset"]["sample_num"] == 10

@@ -3,17 +3,30 @@ model:
   generation: qwen2.5
   model_name: Qwen2.5-7B-Instruct
   device: cuda
-  dtype: float16
+  # Match the checkpoint's native dtype when possible; use "auto" if unsure.
+  dtype: bfloat16
+  load_in_8bit: false
+  trust_remote_code: true
+  load_tokenizer: true
+  # Reference generation parameters (deterministic)
+  generation_config:
+    do_sample: false
+    temperature: 0.0
+    top_p: 1.0
+    top_k: 0
+    repetition_penalty: 1.0
 
 dataset:
   name: spin/csv_bundle
   dataset1_name: privacy
   dataset2_name: fairness
   # Point to CSVs with columns: prompt,response
-  dataset1_path: /root/code/SPIN/data/beaver_train330k_privacy_safe_10.csv
-  dataset2_path: /root/code/SPIN/data/beaver_train330k_fairness_safe_10.csv
+  dataset1_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_privacy_safe_10.csv
+  dataset2_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_fairness_safe_10.csv
   # Optional: cap rows loaded from each CSV
   # max_rows: 1000
+  # Optional: strictly validate local loading (preload via stdlib CSV, no HF datasets needed)
+  # preload: true
 
 evaluator:
   type: spin
@@ -25,7 +38,7 @@ evaluator:
   target_module: mlp  # mlp | self_attn | all
   per_layer: true
   per_module: false
-  device: cuda:0
+  device: cuda
   save_coupling_plot: true
 
 # Optional summarizer:

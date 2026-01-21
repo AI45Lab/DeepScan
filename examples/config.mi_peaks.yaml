@@ -1,0 +1,47 @@
+model:
+  generation: qwen2.5
+  model_name: Qwen2.5-7B-Instruct
+  path: /root/models/Qwen2.5-7B-Instruct
+  device: cuda
+  # Match the checkpoint's native dtype (see model config.json: torch_dtype=bfloat16)
+  dtype: bfloat16
+  load_in_8bit: false
+  trust_remote_code: true
+  load_tokenizer: true
+  # Reference generation parameters (deterministic). Note MI-Peaks evaluator uses its own
+  # `max_new_tokens` and calls HF `model.generate(...)` directly.
+  generation_config:
+    do_sample: false
+    temperature: 0.0
+    top_p: 1.0
+    top_k: 0
+    repetition_penalty: 1.0
+  
+
+dataset:
+  name: mi-peaks/math_train_12k
+  sample_num: 10
+  csv_path: /root/code/LLM-Diagnose-Framework/dataset/mi_peaks/math_train_12k.csv
+
+evaluators:
+  - type: mi-peaks
+    run_name: mi-peaks
+    # Use last layer by default for portability across backbones.
+    # (MI-Peaks paper examples often use layer=31 for 32-layer models; Qwen2.5-7B has fewer layers.)
+    target_layer: -1
+    # Optional: cap how many examples to run MI over (evaluator-level cap).
+    # If omitted, the evaluator uses the dataset size (after dataset truncation above).
+    sample_num: 10
+    # Activation extraction
+    max_new_tokens: 512
+    token_position: -1
+    # MI estimator (matches MI-Peaks default)
+    sigma: 50.0
+    ktype: gaussian
+    # Peak summary
+    top_k: 20
+    top_tokens: 15
+    # optionally, to reuse *existing* MI-Peaks artifacts for strict reproduction:
+    artifact_root: /root/code/MI-Peaks/src
+    reuse_cache: false
+

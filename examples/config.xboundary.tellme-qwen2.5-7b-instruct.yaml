@@ -4,6 +4,17 @@ model:
   device: cuda
   load_in_8bit: false
   path: /root/models/Qwen2.5-7B-Instruct
+  # Match the checkpoint's native dtype when possible; use "auto" if unsure.
+  dtype: bfloat16
+  trust_remote_code: true
+  load_tokenizer: true
+  # Reference generation parameters (deterministic)
+  generation_config:
+    do_sample: false
+    temperature: 0.0
+    top_p: 1.0
+    top_k: 0
+    repetition_penalty: 1.0
 
 progress_equalize_evaluators: true
 
@@ -16,7 +27,7 @@ evaluators:
     layer_ratio: 0.6666
     dataset:
       name: tellme/beaver_tails_filtered
-      test_path: /root/code/TELLME/test.csv
+      test_path: /root/code/LLM-Diagnose-Framework/dataset/tellme/test.csv
 
       
     summarizer:
@@ -29,7 +40,7 @@ evaluators:
     save_tsne: true
     dataset:
       name: xboundary/diagnostic
-      data_dir: /root/code/X-Boundary/data
+      data_dir: /root/code/LLM-Diagnose-Framework/dataset/xboundary
       num_samples_per_class: 50
     summarizer:
       type: xboundary

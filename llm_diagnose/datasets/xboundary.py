@@ -151,9 +151,15 @@ def _load_xboundary_dataset(
     # For framework usage, allow explicit `data_dir`, otherwise try `./data`,
     # and finally fall back to the common absolute path in this workspace.
     candidates: List[Path] = []
+    repo_root = Path(__file__).resolve().parents[2]
     if data_dir:
         candidates.append(Path(data_dir))
+    # Framework-local staged datasets (recommended)
+    candidates.append(repo_root / "dataset" / "xboundary")
     candidates.append(Path("data"))
+    candidates.append(Path("dataset") / "xboundary")
+    # Common path in this workspace/container.
+    candidates.append(Path("/root/code/X-Boundary/data"))
     candidates.append(Path("/mnt/shared-storage-user/guojiaxuan/code/X-Boundary/data"))
 
     base_dir = next((p for p in candidates if p.exists()), None)

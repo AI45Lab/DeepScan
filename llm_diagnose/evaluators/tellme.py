@@ -225,7 +225,14 @@ class TellMeEvaluator(BaseEvaluator):
             throughput_tracker=kwargs.get("throughput_tracker"),
         )
 
+        # Match original TELLME eval_act.py:
+        # it sorts by label before computing any metrics (DistanceMetrics assumes
+        # contiguous class blocks via `step = N // num_classes`).
         labels = torch.tensor(test_df["is_safe"].astype(int).tolist(), dtype=torch.long)
+        sorted_idx = torch.argsort(labels).to(torch.long)
+        labels = labels[sorted_idx]
+        embeddings = embeddings[sorted_idx]
+
         ad = ActivationDiagnostics()
         R_diff, R_same, R_gap = ad.compute_code_rate(embeddings, labels)
         erank = ActivationDiagnostics.compute_erank(embeddings)
@@ -248,6 +255,14 @@ class TellMeEvaluator(BaseEvaluator):
             if max_rows and len(dataset["test"]) > max_rows:
                 dataset["test"] = dataset["test"].head(max_rows)
             return dataset
+        # The TELLME dataset loader supports a `raw=True` HF mode for downstream preprocessing,
+        # but the evaluation metrics here require the filtered CSV schema (`prompt/response/is_safe`).
+        if isinstance(dataset, dict) and "raw" in dataset:
+            raise ValueError(
+                "TELLME evaluator requires the filtered BeaverTails CSV schema with a 'test' split "
+                "(DataFrame columns: prompt, response, is_safe). You provided a `raw` HF dataset. "
+                "Please set `dataset.raw: false` and provide `dataset.test_path`."
+            )
 
         registry = get_dataset_registry()
         if isinstance(dataset, str):
@@ -290,6 +305,14 @@ class TellMeEvaluator(BaseEvaluator):
     ) -> torch.Tensor:
         if tokenizer is None:
             raise RuntimeError("TellMeEvaluator requires a tokenizer on the model runner.")
+
+        # Match the original TELLME implementation:
+        # - left padding ensures token_position=-1 selects the *last non-pad token*
+        # - pad_token must be set for padding to work reliably
+        if getattr(tokenizer, "padding_side", None) != "left":
+            tokenizer.padding_side = "left"
+        if getattr(tokenizer, "pad_token", None) is None:
+            tokenizer.pad_token = getattr(tokenizer, "eos_token", None)
 
         hook = _Hook(token_position=token_position)
         layer_module = self._get_layer_module(model, layer_index)

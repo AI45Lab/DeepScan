@@ -152,7 +152,8 @@ class _SpinConfig:
     # Ratio used to select top indices per dataset
     q: float = 5e-7  # dataset ratio
     target_module: str = "mlp"  # mlp | self_attn | all
-    device: str = "cuda:0"
+    # Use a flexible default that respects CUDA_VISIBLE_DEVICES.
+    device: str = "cuda"
 
     # Dataset dict keys
     dataset1_key: str = "dataset1"
@@ -195,20 +196,24 @@ class SpinEvaluator(BaseEvaluator):
         if not isinstance(dataset, dict):
             raise ValueError("SpinEvaluator expects dataset to be a dict (e.g. from spin/csv_bundle).")
 
-        # Accept either a pre-loaded dict with keys, or a spin/csv_bundle with `paths`.
-        paths = None
-        if "paths" in dataset:
-            paths = dataset.get("paths") or {}
+        # Accept either:
+        # - pre-loaded rows under dataset1/dataset2 (preferred when present), or
+        # - a spin/csv_bundle with `paths` (exact SPIN sampling via HF datasets).
+        paths = dataset.get("paths") if isinstance(dataset.get("paths"), dict) else None
+        has_rows = all(k in dataset for k in (cfg.dataset1_key, cfg.dataset2_key))
+        if has_rows:
+            d1 = list(dataset[cfg.dataset1_key])
+            d2 = list(dataset[cfg.dataset2_key])
+        elif paths is not None:
             if "dataset1" not in paths or "dataset2" not in paths:
                 raise ValueError("SpinEvaluator paths must include 'dataset1' and 'dataset2'.")
             d1 = _load_and_sample_csv_items(paths["dataset1"], cfg.nsamples, cfg.seed)
             d2 = _load_and_sample_csv_items(paths["dataset2"], cfg.nsamples, cfg.seed)
         else:
-            for k in (cfg.dataset1_key, cfg.dataset2_key):
-                if k not in dataset:
-                    raise ValueError(f"SpinEvaluator dataset is missing key: {k!r}")
-            d1 = list(dataset[cfg.dataset1_key])
-            d2 = list(dataset[cfg.dataset2_key])
+            raise ValueError(
+                "SpinEvaluator dataset must include either "
+                f"'{cfg.dataset1_key}'/'{cfg.dataset2_key}' lists or a `paths` dict."
+            )
 
         hf_model, tokenizer = _extract_hf_model_and_tokenizer(model)
         device = torch_mod.device(cfg.device)

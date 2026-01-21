@@ -131,3 +131,27 @@ def test_webhook_sink_posts_status_message() -> None:
     assert "jobId=job-777" in captured["url"]
     assert captured["method"] == "post"
     assert captured["payload"] == {"status": "complete", "progress": 100.0, "perf": 70}
+
+
+def test_webhook_sink_prefers_real_mi_peaks_metrics_when_present() -> None:
+    sink = _WebhookSink("http://example.com/progress", "job-999")
+    result = _sample_run_result()
+    # Inject MI-Peaks evaluator output (lightweight; no heavy compute in unit tests).
+    result["models"][0]["evaluations"].append(
+        {
+            "evaluator": {"id": "mi-peaks", "type": "mi-peaks"},
+            "results": {
+                "metrics": {
+                    "mi_mean_trajectory": [0.1, 0.2, 0.3],
+                    "charts": [{"type": "line", "data": [0.1, 0.2, 0.3]}],
+                }
+            },
+        }
+    )
+
+    payload = sink._format_diagnosis_report(result)
+    assert payload is not None
+    entries = {item["name"]: item for item in payload["results"]}
+    mi_charts = entries["mi-peaks"]["metrics"]["charts"]
+    assert mi_charts[0]["type"] == "line"
+    assert mi_charts[0]["data"] == [0.1, 0.2, 0.3]

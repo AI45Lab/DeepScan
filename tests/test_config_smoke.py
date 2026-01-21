@@ -22,6 +22,7 @@ EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
     "config_path",
     [
         EXAMPLES_DIR / "config.xboundary.tellme-qwen2.5-7b-instruct.yaml",
+        EXAMPLES_DIR / "config.mi_peaks.yaml",
     ],
 )
 def test_example_configs_dry_run(config_path: Path) -> None:

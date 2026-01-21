@@ -4,14 +4,24 @@ model:
   generation: qwen3
   model_name: Qwen3-8B
   device: cuda
-  dtype: float16
+  # Prefer "auto" unless you need to force a dtype for memory; it matches the checkpoint's torch_dtype.
+  dtype: auto
   load_in_8bit: false
   path: /mnt/shared-storage-user/guojiaxuan/data/models/models--Qwen--Qwen3-8B
+  trust_remote_code: true
+  load_tokenizer: true
+  # Reference generation parameters (deterministic)
+  generation_config:
+    do_sample: false
+    temperature: 0.0
+    top_p: 1.0
+    top_k: 0
+    repetition_penalty: 1.0
 
 dataset:
   name: tellme/beaver_tails_filtered
   # Point to the filtered CSVs provided by TELLME
-  test_path: /mnt/shared-storage-user/guojiaxuan/code/TELLME/test.csv
+  test_path: /root/code/LLM-Diagnose-Framework/dataset/tellme/test.csv
   # train_path: /mnt/shared-storage-user/guojiaxuan/code/TELLME/train.csv
   # max_rows: 400  # optional cap for quick runs (use full set to keep both classes)
 

@@ -48,3 +48,10 @@ try:  # SPIN (no extra deps)
 except Exception as exc:  # pragma: no cover
     logger.debug("Skipping SPIN dataset registration: %s", exc)
 
+try:  # MI-Peaks (optional: `pandas`, `torch`, `transformers`)
+    from llm_diagnose.datasets.mi_peaks import register_mi_peaks_datasets
+
+    register_mi_peaks_datasets()
+    __all__.append("register_mi_peaks_datasets")
+except Exception as exc:  # pragma: no cover
+    logger.debug("Skipping MI-Peaks dataset registration: %s", exc)
