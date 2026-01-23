@@ -9,6 +9,7 @@ import math
 import argparse
 import json
 import logging
+import gc
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +44,34 @@ if not _webhook_logger.handlers:
     # Ensure we log INFO by default; users can override via standard logging config.
     _webhook_logger.setLevel(logging.INFO)
     _webhook_logger.propagate = False
+
+
+def _maybe_cuda_cleanup() -> None:
+    """
+    Best-effort memory cleanup between evaluators/models.
+
+    Notes:
+    - This does NOT unload model weights.
+    - PyTorch may keep freed memory in its CUDA caching allocator; empty_cache()
+      releases cached blocks back to the driver so other allocations can succeed.
+    """
+    try:
+        import torch  # type: ignore
+
+        if getattr(torch, "cuda", None) is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            # Collect inter-process cached blocks (best-effort).
+            try:
+                torch.cuda.ipc_collect()
+            except Exception:
+                pass
+    except Exception:
+        # torch not installed or CUDA not available
+        pass
+    try:
+        gc.collect()
+    except Exception:
+        pass
 
 
 def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> ConfigLoader:
@@ -1553,6 +1582,8 @@ def run_from_config(
                 throughput_tracker.emit_zero_rate(status="running")
             except Exception:
                 logging.debug("Throughput idle emission failed", exc_info=True)
+            # Best-effort CUDA cleanup between evaluators (keeps model weights loaded).
+            _maybe_cuda_cleanup()
 
         per_model_payload = {
             "run_id": run_identifier,

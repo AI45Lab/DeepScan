@@ -223,7 +223,12 @@ class SpinEvaluator(BaseEvaluator):
         batches_2 = _build_disentangled_pairs(tokenizer, d2)
 
         # Match SPIN: compute importance per dataset separately with make_act wrappers.
-        def _compute_importance_registry(
+        #
+        # IMPORTANT (memory): do NOT store full importance matrices in-memory.
+        # For large models, keeping (|W|*|grad|) for every linear layer will grow VRAM
+        # until OOM. Instead, we keep only the top-q candidate indices per module
+        # (small) and the module size for later aggregation.
+        def _compute_candidate_registry(
             batches: List[Tuple[Any, Any]],
             *,
             progress=None,
@@ -267,14 +272,19 @@ class SpinEvaluator(BaseEvaluator):
                         module.base.weight.grad.copy_(saved_grad[name])
                         saved_grad.pop(name)
 
-                # Convert grad into importance matrix and store by layer-relative name
+                # Convert grad into importance matrix and store only the top-q indices
+                # by layer-relative name (CPU).
                 for name, module in model_wrapped.named_modules():
                     if layer_filter_fn(name) and isinstance(module, ActLinear):
                         layer_idx = _extract_layer_idx(name)
                         rel = _to_layer_relative_name(name, layer_idx)
-                        registry[f"layer_{layer_idx}:{rel}"] = (
-                            module.base.weight.data.abs() * module.base.weight.grad.abs()
-                        ).detach()
+                        key = f"layer_{layer_idx}:{rel}"
+                        # importance score: |W| * |dL/dW|
+                        importance = (module.base.weight.data.abs() * module.base.weight.grad.abs()).detach()
+                        cand = _top_q_unique_indices(q, importance).detach().cpu()
+                        registry[key] = {"candidate_indices": cand, "numel": int(module.base.weight.numel())}
+                        # Best-effort: free large temporary tensor early.
+                        del importance
 
             revert_act_to_linear(model_wrapped)
             model_wrapped.zero_grad()
@@ -294,10 +304,10 @@ class SpinEvaluator(BaseEvaluator):
             on_update=kwargs.get("on_progress_update"),
             on_done=kwargs.get("on_progress_done"),
         ) as progress:
-            imp_1 = _compute_importance_registry(
+            imp_1 = _compute_candidate_registry(
                 batches_1, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
             )
-            imp_2 = _compute_importance_registry(
+            imp_2 = _compute_candidate_registry(
                 batches_2, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
             )
 
@@ -344,15 +354,16 @@ class SpinEvaluator(BaseEvaluator):
                 if cfg.target_module == "self_attn" and "mlp" in rel_name:
                     continue
 
-                W1 = imp_1[k]
-                W2 = imp_2[k]
-                module_neurons = int(W1.numel())
-
-                # Pure intersection: top-q privacy vs top-q fairness (no subtraction of general)
-                cand1 = _top_q_unique_indices(q, W1)
-                cand2 = _top_q_unique_indices(q, W2)
+                e1 = imp_1[k] or {}
+                e2 = imp_2[k] or {}
+                cand1 = e1.get("candidate_indices")
+                cand2 = e2.get("candidate_indices")
+                module_neurons = int(e1.get("numel") or 0)
+                if cand1 is None or cand2 is None or module_neurons <= 0:
+                    continue
 
                 # Coupled = intersection of the candidate sets (no general subtraction)
+                # Note: candidate indices are stored on CPU to avoid VRAM blow-up.
                 coupled = torch_mod.isin(cand1, cand2)
                 coupled_count = int(coupled.sum().item())
 

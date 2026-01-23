@@ -64,3 +64,11 @@ runs/
 
 # results
 results/
+data/
+
+# cache
+cache/
+
+# macos
+.DS_Store
+._dataset

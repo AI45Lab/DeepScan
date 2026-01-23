@@ -113,10 +113,20 @@ QWEN_MODELS = {
     },
     "qwen2.5": {
         "Qwen2.5-7B-Instruct": {
-            "path": "/root/models/Qwen2.5-7B-Instruct",
+            "path": "Qwen/Qwen2.5-7B-Instruct",
             "params": "7B",
             "description": "Qwen2.5 7B Instruct model",
         },
+        "Qwen2.5-14B-Instruct": {
+            "path": "Qwen/Qwen2.5-14B-Instruct",
+            "params": "14B",
+            "description": "Qwen2.5 14B Instruct model",
+        },
+        "Qwen2.5-72B-Instruct": {
+            "path": "Qwen/Qwen2.5-72B-Instruct",
+            "params": "72B",
+            "description": "Qwen2.5 72B Instruct model",
+        }
     },
     "qwen3": {
         "Qwen3-0.6B": {
