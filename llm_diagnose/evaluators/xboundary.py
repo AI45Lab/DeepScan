@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
 from llm_diagnose.utils.progress import ProgressReporter
+from llm_diagnose.utils.model_introspection import get_num_hidden_layers
 
 logger = logging.getLogger(__name__)
 
@@ -129,9 +130,13 @@ class _XBoundaryTextDataset:
 
 
 def _resolve_target_layers(model: Any, cfg: _XBoundaryConfig) -> List[int]:
-    total_layers = getattr(getattr(model, "config", None), "num_hidden_layers", None)
+    total_layers = get_num_hidden_layers(model)
     if total_layers is None:
-        raise ValueError("X-Boundary could not infer model.config.num_hidden_layers; provide target_layers explicitly.")
+        raise ValueError(
+            "X-Boundary could not infer the text transformer depth. "
+            "Tried config.num_hidden_layers and nested config.text_config.num_hidden_layers; "
+            "provide target_layers explicitly."
+        )
 
     if cfg.target_layers_csv:
         return [int(x.strip()) for x in cfg.target_layers_csv.split(",") if x.strip()]
@@ -145,6 +150,14 @@ def _resolve_target_layers(model: Any, cfg: _XBoundaryConfig) -> List[int]:
 
 def _masked_mean_pool(hidden_state, attention_mask):
     torch_mod = _require_torch()
+    # For sharded models, `hidden_state` can live on different GPUs per layer.
+    # Always move the (small) attention mask to the hidden state's device to avoid
+    # cuda:0 vs cuda:1 mismatches without moving large activations.
+    try:
+        if hasattr(hidden_state, "device") and hasattr(attention_mask, "to"):
+            attention_mask = attention_mask.to(hidden_state.device)
+    except Exception:
+        pass
     mask_expanded = attention_mask.unsqueeze(-1).expand(hidden_state.size()).float()
     sum_embeddings = torch_mod.sum(hidden_state * mask_expanded, dim=1)
     sum_mask = torch_mod.clamp(mask_expanded.sum(dim=1), min=1e-9)

@@ -1,0 +1,43 @@
+model:
+  - generation: gemma3
+    run_name: gemma-3-27b-it
+    model_name: gemma-3-27b-it
+    device: auto
+    load_in_8bit: false
+    # Match the checkpoint's native dtype (see config.json: torch_dtype=bfloat16)
+    dtype: bfloat16
+    trust_remote_code: false
+    # Local checkpoint path (edit if yours differs)
+    path: /mnt/shared-storage-user/ai4good2-share/models/google/gemma-3-27b-it
+    # Reference generation parameters (deterministic)
+    generation_config:
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      top_k: 0
+      repetition_penalty: 1.0
+
+progress_equalize_evaluators: true
+
+# NOTE: Existing evaluators in this repo are text-only. This config wires them up
+# to keep the run schema consistent, but multimodal evaluation will require
+# multimodal-aware evaluators/datasets.
+evaluators:
+  - type: xboundary
+    run_name: x-boundary
+    batch_size: 8
+    max_length: 1024
+    save_metrics_json: true
+    save_tsne: true
+    dataset:
+      name: xboundary/diagnostic
+      data_dir: dataset/xboundary
+      num_samples_per_class: 200
+    summarizer:
+      type: xboundary
+      select_by: boundary_ratio
+      include_both_selections: true
+
+summarizer:
+  type: combined
+

@@ -1,39 +1,4 @@
 model:
-  # - generation: qwen2.5
-  #   run_name: qwen2.5-7b
-  #   model_name: Qwen2.5-7B-Instruct
-  #   device: auto
-  #   load_in_8bit: false
-  #   path: /mnt/shared-storage-user/ai4good2-share/models/Qwen/Qwen2.5-7B-Instruct
-  #   # Match the checkpoint's native dtype (see /root/models/Qwen2.5-7B-Instruct/config.json: torch_dtype=bfloat16)
-  #   dtype: bfloat16
-  #   trust_remote_code: true
-  #   load_tokenizer: true
-  #   # Reference generation parameters (deterministic)
-  #   generation_config:
-  #     do_sample: false
-  #     temperature: 0.0
-  #     top_p: 1.0
-  #     top_k: 0
-  #     repetition_penalty: 1.0
-
-  # - generation: qwen2.5
-  #   run_name: qwen2.5-14b
-  #   model_name: Qwen2.5-14B-Instruct
-  #   device: auto
-  #   load_in_8bit: false
-  #   path: /mnt/shared-storage-user/ai4good2-share/models/Qwen/Qwen2.5-14B-Instruct
-  #   # Match the checkpoint's native dtype (see /root/models/Qwen2.5-7B-Instruct/config.json: torch_dtype=bfloat16)
-  #   dtype: bfloat16
-  #   trust_remote_code: true
-  #   load_tokenizer: true
-  #   # Reference generation parameters (deterministic)
-  #   generation_config:
-  #     do_sample: false
-  #     temperature: 0.0
-  #     top_p: 1.0
-  #     top_k: 0
-  #     repetition_penalty: 1.0
 
   - generation: llama3.3
     run_name: llama3.3-70b-instruct
@@ -56,16 +21,16 @@ model:
 progress_equalize_evaluators: true
 
 evaluators:
-  # - type: tellme
-  #   run_name: tellme
-  #   batch_size: 16
-  #   token_position: -1
-  #   layer_ratio: 0.6666
-  #   dataset:
-  #     name: tellme/beaver_tails_filtered
-  #     test_path: dataset/tellme/test.csv
-  #   summarizer:
-  #     type: tellme
+  - type: tellme
+    run_name: tellme
+    batch_size: 16
+    token_position: -1
+    layer_ratio: 0.6666
+    dataset:
+      name: tellme/beaver_tails_filtered
+      test_path: dataset/tellme/test.csv
+    summarizer:
+      type: tellme
 
   - type: xboundary
     run_name: x-boundary
@@ -83,26 +48,26 @@ evaluators:
       select_by: boundary_ratio
       include_both_selections: true
 
-  # - type: spin
-  #   run_name: spin
-  #   # Match original SPIN default: --nsamples
-  #   nsamples: 128
-  #   seed: 0
-  #   q: 5e-7               # top-q ratio per dataset
-  #   target_module: mlp    # mlp | self_attn | all
-  #   per_layer: true
-  #   per_module: false
-  #   device: cuda
-  #   save_coupling_plot: true
-  #   dataset:
-  #     name: spin/csv_bundle
-  #     dataset1_name: privacy
-  #     dataset2_name: fairness
-  #     dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
-  #     dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
-  #   summarizer:
-  #     type: spin
-  #     top_layers: 5
+  - type: spin
+    run_name: spin
+    # Match original SPIN default: --nsamples
+    nsamples: 128
+    seed: 0
+    q: 5e-7               # top-q ratio per dataset
+    target_module: mlp    # mlp | self_attn | all
+    per_layer: true
+    per_module: false
+    device: cuda
+    save_coupling_plot: true
+    dataset:
+      name: spin/csv_bundle
+      dataset1_name: privacy
+      dataset2_name: fairness
+      dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
+    summarizer:
+      type: spin
+      top_layers: 5
 
   # - type: mi-peaks
   #   run_name: mi-peaks

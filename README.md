@@ -35,6 +35,10 @@ pip install datasets
 # Qwen runner dependencies (shared by evaluators)
 pip install -e ".[qwen]"
 
+# Ministral 3 (multimodal) runner dependencies
+# (per official model card: install Transformers from main + mistral-common>=1.8.6)
+pip install -e ".[ministral3]"
+
 # TELLME evaluator + metrics stack
 pip install -e ".[tellme]"
 

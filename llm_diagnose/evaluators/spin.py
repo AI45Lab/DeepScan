@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from llm_diagnose.evaluators.base import BaseEvaluator
-from llm_diagnose.evaluators.spin_support import ActLinear, make_act, no_act_recording, revert_act_to_linear
 from llm_diagnose.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
+from llm_diagnose.utils.model_introspection import get_num_hidden_layers
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,14 @@ class SpinEvaluator(BaseEvaluator):
     def evaluate(self, model: Any, dataset: Any, **kwargs: Any) -> Dict[str, Any]:
         cfg = self.spin_config
         torch_mod = _require_torch()
+        # Import SPIN hook utilities lazily so `spin` can be registered in environments
+        # that only need dry-run validation (no torch installed).
+        from llm_diagnose.evaluators.spin_support import (  # type: ignore
+            ActLinear,
+            make_act,
+            no_act_recording,
+            revert_act_to_linear,
+        )
 
         try:
             q = float(cfg.q)
@@ -236,7 +244,7 @@ class SpinEvaluator(BaseEvaluator):
         ) -> Dict[str, Any]:
             model_wrapped = make_act(hf_model, verbose=False)
             model_wrapped.eval()
-            num_hidden_layers = model_wrapped.config.num_hidden_layers
+            num_hidden_layers = get_num_hidden_layers(model_wrapped) or 0
             registry: Dict[str, Any] = {}
 
             for layer in range(num_hidden_layers):
@@ -290,10 +298,7 @@ class SpinEvaluator(BaseEvaluator):
             model_wrapped.zero_grad()
             return registry
 
-        total_steps = (
-            int(hf_model.config.num_hidden_layers)
-            * (len(batches_1) + len(batches_2))
-        )
+        total_steps = int(get_num_hidden_layers(hf_model) or 0) * (len(batches_1) + len(batches_2))
         progress_sink = kwargs.get("progress_sink")
         with self.progress(
             dataset=None,
@@ -327,7 +332,7 @@ class SpinEvaluator(BaseEvaluator):
         }
 
         # Aggregate per-layer coupling stats using SPIN's exact selection logic.
-        num_layers = hf_model.config.num_hidden_layers
+        num_layers = int(get_num_hidden_layers(hf_model) or 0)
         coupled_per_layer: List[int] = [0 for _ in range(num_layers)]
 
         for layer_idx in range(num_layers):

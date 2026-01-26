@@ -43,6 +43,11 @@ qwen = [
     "torch>=2.1",
     "transformers>=4.37",
 ]
+glm = [
+    "torch>=2.1",
+    # GLM-4.5 series may require a newer Transformers build with glm4_moe support.
+    "transformers @ git+https://github.com/huggingface/transformers",
+]
 tellme = [
     "torch>=2.1",
     "transformers>=4.37",
@@ -65,6 +70,13 @@ mi_peaks = [
     "transformers>=4.37",
     "pandas>=2.1",
     "numpy>=1.24",
+]
+# Ministral 3 (multimodal) requires the Mistral tokenizer stack from `mistral-common`
+# and, per the official model card, a recent Transformers build (often main/v5).
+ministral3 = [
+    "torch>=2.1",
+    "mistral-common>=1.8.6",
+    "transformers @ git+https://github.com/huggingface/transformers",
 ]
 all = [
     "torch>=2.1",

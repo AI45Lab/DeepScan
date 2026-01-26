@@ -1,12 +1,13 @@
 model:
-  generation: qwen2.5
-  model_name: Qwen2.5-7B-Instruct
+  generation: llama3.3
+  model_name: Llama-3.3-70B-Instruct
   device: auto
   load_in_8bit: false
-  path: /root/models/Qwen2.5-7B-Instruct
-  # Match the checkpoint's native dtype (see /root/models/Qwen2.5-7B-Instruct/config.json: torch_dtype=bfloat16)
+  # Point this at your local checkpoint folder (recommended; don't commit weights).
+  path: /mnt/shared-storage-user/ai4good2-share/models/meta-llama/Llama-3.3-70B-Instruct
+  # Llama-3.x instruct checkpoints are commonly bf16; use "auto" if unsure.
   dtype: bfloat16
-  trust_remote_code: true
+  trust_remote_code: false
   load_tokenizer: true
   # Reference generation parameters (deterministic)
   generation_config:
@@ -15,6 +16,7 @@ model:
     top_p: 1.0
     top_k: 0
     repetition_penalty: 1.0
+    # Llama tokenizers often have no pad token; runner will default pad_token_id=eos_token_id.
 
 progress_equalize_evaluators: true
 
@@ -26,7 +28,7 @@ evaluators:
     layer_ratio: 0.6666
     dataset:
       name: tellme/beaver_tails_filtered
-      test_path: /root/code/LLM-Diagnose-Framework/dataset/tellme/test.csv
+      test_path: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/dataset/tellme/test.csv
     summarizer:
       type: tellme
 
@@ -34,11 +36,16 @@ evaluators:
     run_name: x-boundary
     batch_size: 8
     max_length: 1024
+    # Either specify explicit layers...
+    # target_layers: [9, 18]
+    # ...or comma-separated:
+    # target_layers_csv: "9,18"
+    # If omitted, defaults to 1/3 and 2/3 depth.
     save_metrics_json: true
     save_tsne: true
     dataset:
       name: xboundary/diagnostic
-      data_dir: /root/code/LLM-Diagnose-Framework/dataset/xboundary
+      data_dir: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/dataset/xboundary
       # Match original X-Boundary default: --num_samples (per class)
       num_samples_per_class: 200
     summarizer:
@@ -61,20 +68,17 @@ evaluators:
       name: spin/csv_bundle
       dataset1_name: privacy
       dataset2_name: fairness
-      dataset1_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_privacy_safe_1k.csv
-      dataset2_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_fairness_safe_1k.csv
+      dataset1_path: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_fairness_safe_1k.csv
     summarizer:
       type: spin
       top_layers: 5
 
-
   - type: mi-peaks
     run_name: mi-peaks
     # Use last layer by default for portability across backbones.
-    # (MI-Peaks paper examples often use layer=31 for 32-layer models; Qwen2.5-7B has fewer layers.)
     target_layer: -1
     # Optional: cap how many examples to run MI over (evaluator-level cap).
-    # If omitted, the evaluator uses the dataset size (after dataset truncation above).
     sample_num: 10
     # Activation extraction
     max_new_tokens: 512
@@ -91,7 +95,7 @@ evaluators:
     dataset:
       name: mi-peaks/math_train_12k
       sample_num: 10
-      csv_path: /root/code/LLM-Diagnose-Framework/dataset/mi_peaks/math_train_12k.csv
+      csv_path: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/dataset/mi_peaks/math_train_12k.csv
 
 # Run-level summarizer that aggregates all evaluators
 summarizer:

@@ -709,7 +709,12 @@ class MiPeaksEvaluator(BaseEvaluator):
                 mi_values = mi_values[:usable_len]
                 top_indices = sorted(range(len(mi_values)), key=lambda i: mi_values[i], reverse=True)[: int(cfg.top_k)]
                 token_ids = acts[idx]["token_ids"].tolist()
-                token_ids.append(2)  # ensure eos
+                # Ensure EOS for stable decoding. Do NOT hardcode eos_token_id=2:
+                # Llama-3.x and other tokenizers can differ.
+                eos_id = getattr(tokenizer, "eos_token_id", None)
+                if eos_id is None:
+                    eos_id = 2
+                token_ids.append(int(eos_id))
                 decoded = tokenizer.batch_decode([token_ids[i] for i in top_indices], skip_special_tokens=False)
                 for tok in decoded:
                     tok = str(tok).strip()

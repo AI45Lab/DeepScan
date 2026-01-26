@@ -1,0 +1,75 @@
+model:
+  - generation: mistral
+    run_name: mistral-small-24b
+    model_name: Mistral-Small-24B-Instruct-2501
+    device: auto
+    load_in_8bit: false
+    # Match the checkpoint's native dtype (see config.json: torch_dtype=bfloat16)
+    dtype: bfloat16
+    trust_remote_code: false
+    load_tokenizer: true
+    # Local checkpoint path (edit if yours differs)
+    path: /mnt/shared-storage-user/ai4good2-share/models/mistralai/Mistral-Small-24B-Instruct-2501
+    # Reference generation parameters (deterministic)
+    generation_config:
+      do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      top_k: 0
+      repetition_penalty: 1.0
+
+progress_equalize_evaluators: true
+
+evaluators:
+  - type: tellme
+    run_name: tellme
+    batch_size: 16
+    token_position: -1
+    layer_ratio: 0.6666
+    dataset:
+      name: tellme/beaver_tails_filtered
+      test_path: dataset/tellme/test.csv
+    summarizer:
+      type: tellme
+
+  - type: xboundary
+    run_name: x-boundary
+    batch_size: 8
+    max_length: 1024
+    save_metrics_json: true
+    save_tsne: true
+    dataset:
+      name: xboundary/diagnostic
+      data_dir: dataset/xboundary
+      # Match original X-Boundary default: --num_samples (per class)
+      num_samples_per_class: 200
+    summarizer:
+      type: xboundary
+      select_by: boundary_ratio
+      include_both_selections: true
+
+  - type: spin
+    run_name: spin
+    # Match original SPIN default: --nsamples
+    nsamples: 128
+    seed: 0
+    q: 5e-7               # top-q ratio per dataset
+    target_module: mlp    # mlp | self_attn | all
+    per_layer: true
+    per_module: false
+    device: cuda
+    save_coupling_plot: true
+    dataset:
+      name: spin/csv_bundle
+      dataset1_name: privacy
+      dataset2_name: fairness
+      dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
+    summarizer:
+      type: spin
+      top_layers: 5
+
+# Run-level summarizer that aggregates all evaluators
+summarizer:
+  type: combined
+

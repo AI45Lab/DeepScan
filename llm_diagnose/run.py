@@ -22,6 +22,7 @@ from llm_diagnose.evaluators.registry import get_evaluator_registry
 from llm_diagnose.summarizers.registry import get_summarizer_registry
 from llm_diagnose.utils.progress import infer_total_items
 from llm_diagnose.utils.throughput import TokenThroughputTracker
+from llm_diagnose.utils.model_introspection import get_num_hidden_layers
 
 # Dedicated logger for webhook payload tracing.
 _webhook_logger = logging.getLogger("llm_diagnose.webhook")
@@ -1293,7 +1294,7 @@ def run_from_config(
         """
         try:
             hf_model = getattr(model_obj, "model", model_obj)
-            num_layers = getattr(getattr(hf_model, "config", None), "num_hidden_layers", None)
+            num_layers = get_num_hidden_layers(hf_model)
             if not isinstance(num_layers, int) or num_layers <= 0:
                 return None
             if not isinstance(dataset, dict):

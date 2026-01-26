@@ -1,0 +1,71 @@
+model:
+  - generation: internvl3.5
+    run_name: internvl3.5-14b
+    model_name: InternVL3.5-14B
+    device: auto
+    load_in_8bit: false
+    low_cpu_mem_usage: true
+    use_flash_attn: true
+    # InternVL uses custom remote code and chat API
+    trust_remote_code: true
+    # Note: set this to your local checkpoint path when available
+    # e.g. /mnt/shared-storage-user/ai4good2-share/models/OpenGVLab/InternVL3_5-14B
+    path: /mnt/shared-storage-user/ai4good2-share/models/OpenGVLab/InternVL3_5-14B
+    # Deterministic generation defaults (can override per call)
+    generation_config:
+      do_sample: false
+      max_new_tokens: 512
+
+progress_equalize_evaluators: true
+
+# Existing evaluators are text-only. X-Boundary works on the underlying language_model
+# when using text datasets (no images).
+evaluators:
+  - type: tellme
+    run_name: tellme
+    batch_size: 16
+    token_position: -1
+    layer_ratio: 0.6666
+    dataset:
+      name: tellme/beaver_tails_filtered
+      test_path: dataset/tellme/test.csv
+    summarizer:
+      type: tellme
+
+  - type: xboundary
+    run_name: x-boundary
+    batch_size: 8
+    max_length: 1024
+    save_metrics_json: true
+    save_tsne: true
+    dataset:
+      name: xboundary/diagnostic
+      data_dir: dataset/xboundary
+      num_samples_per_class: 200
+    summarizer:
+      type: xboundary
+      select_by: boundary_ratio
+      include_both_selections: true
+
+  - type: spin
+    run_name: spin
+    nsamples: 128
+    seed: 0
+    q: 5e-7
+    target_module: mlp
+    per_layer: true
+    per_module: false
+    device: cuda
+    save_coupling_plot: true
+    dataset:
+      name: spin/csv_bundle
+      dataset1_name: privacy
+      dataset2_name: fairness
+      dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
+    summarizer:
+      type: spin
+      top_layers: 5
+summarizer:
+  type: combined
+
