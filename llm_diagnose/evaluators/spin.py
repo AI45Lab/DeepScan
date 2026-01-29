@@ -273,12 +273,12 @@ class SpinEvaluator(BaseEvaluator):
                     loss.backward()
                     for name, module in model_wrapped.named_modules():
                         if layer_filter_fn(name) and isinstance(module, ActLinear):
-                            saved_grad[name] += module.base.weight.grad.abs()
-
-                for name, module in model_wrapped.named_modules():
-                    if layer_filter_fn(name) and isinstance(module, ActLinear):
-                        module.base.weight.grad.copy_(saved_grad[name])
-                        saved_grad.pop(name)
+                            grad = module.base.weight.grad
+                            # With MoE / sparse routing, many expert weights never receive
+                            # gradients for a given batch; PyTorch leaves `.grad` as None.
+                            if grad is None:
+                                continue
+                            saved_grad[name] += grad.abs()
 
                 # Convert grad into importance matrix and store only the top-q indices
                 # by layer-relative name (CPU).
@@ -288,11 +288,26 @@ class SpinEvaluator(BaseEvaluator):
                         rel = _to_layer_relative_name(name, layer_idx)
                         key = f"layer_{layer_idx}:{rel}"
                         # importance score: |W| * |dL/dW|
-                        importance = (module.base.weight.data.abs() * module.base.weight.grad.abs()).detach()
-                        cand = _top_q_unique_indices(q, importance).detach().cpu()
+                        grad_abs_sum = saved_grad.get(name)
+                        if grad_abs_sum is None:
+                            # Should not happen: we initialize saved_grad for every ActLinear in this layer.
+                            cand = torch_mod.empty(0, dtype=torch_mod.long)
+                        else:
+                            # If a module never received any gradient signal across the dataset batches,
+                            # treat it as having no candidates (avoids arbitrary top-q selection on all-zeros).
+                            try:
+                                has_signal = bool(torch_mod.any(grad_abs_sum))
+                            except Exception:
+                                has_signal = True
+                            if not has_signal:
+                                cand = torch_mod.empty(0, dtype=torch_mod.long)
+                            else:
+                                importance = (module.base.weight.data.abs() * grad_abs_sum).detach()
+                                cand = _top_q_unique_indices(q, importance).detach().cpu()
+                                # Best-effort: free large temporary tensor early.
+                                del importance
                         registry[key] = {"candidate_indices": cand, "numel": int(module.base.weight.numel())}
-                        # Best-effort: free large temporary tensor early.
-                        del importance
+                        saved_grad.pop(name, None)
 
             revert_act_to_linear(model_wrapped)
             model_wrapped.zero_grad()

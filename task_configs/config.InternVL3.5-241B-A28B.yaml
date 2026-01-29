@@ -1,48 +1,54 @@
 model:
+
   - generation: internvl3.5
     run_name: internvl3.5-241b-a28b
     model_name: InternVL3.5-241B-A28B
     device: auto
     load_in_8bit: false
+    # InternVL3.5 uses custom remote code and `model.chat(...)` API.
+    trust_remote_code: true
+    # For very large checkpoints, these flags are typically important for loading stability/perf.
     low_cpu_mem_usage: true
     use_flash_attn: true
-    trust_remote_code: true
-    # Local checkpoint path (already present on your machine)
     path: /mnt/shared-storage-user/ai4good2-share/models/OpenGVLab/InternVL3_5-241B-A28B
+    dtype: bfloat16
+    load_tokenizer: true
     generation_config:
       do_sample: false
+      temperature: 0.0
+      top_p: 1.0
+      top_k: 0
+      repetition_penalty: 1.0
       max_new_tokens: 512
 
 progress_equalize_evaluators: true
 
-# Existing evaluators are text-only. X-Boundary will operate on the underlying
-# language_model exposed by the runner when used with text datasets.
 evaluators:
-  - type: tellme
-    run_name: tellme
-    batch_size: 16
-    token_position: -1
-    layer_ratio: 0.6666
-    dataset:
-      name: tellme/beaver_tails_filtered
-      test_path: dataset/tellme/test.csv
-    summarizer:
-      type: tellme
+  # - type: tellme
+  #   run_name: tellme
+  #   batch_size: 16
+  #   token_position: -1
+  #   layer_ratio: 0.6666
+  #   dataset:
+  #     name: tellme/beaver_tails_filtered
+  #     test_path: dataset/tellme/test.csv
+  #   summarizer:
+  #     type: tellme
 
-  - type: xboundary
-    run_name: x-boundary
-    batch_size: 8
-    max_length: 1024
-    save_metrics_json: true
-    save_tsne: true
-    dataset:
-      name: xboundary/diagnostic
-      data_dir: dataset/xboundary
-      num_samples_per_class: 200
-    summarizer:
-      type: xboundary
-      select_by: boundary_ratio
-      include_both_selections: true
+  # - type: xboundary
+  #   run_name: x-boundary
+  #   batch_size: 8
+  #   max_length: 1024
+  #   save_metrics_json: true
+  #   save_tsne: true
+  #   dataset:
+  #     name: xboundary/diagnostic
+  #     data_dir: dataset/xboundary
+  #     num_samples_per_class: 200
+  #   summarizer:
+  #     type: xboundary
+  #     select_by: boundary_ratio
+  #     include_both_selections: true
 
   - type: spin
     run_name: spin

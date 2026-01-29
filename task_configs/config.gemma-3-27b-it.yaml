@@ -6,7 +6,7 @@ model:
     load_in_8bit: false
     # Match the checkpoint's native dtype (see config.json: torch_dtype=bfloat16)
     dtype: bfloat16
-    trust_remote_code: false
+    trust_remote_code: true
     # Local checkpoint path (edit if yours differs)
     path: /mnt/shared-storage-user/ai4good2-share/models/google/gemma-3-27b-it
     # Reference generation parameters (deterministic)
@@ -23,6 +23,18 @@ progress_equalize_evaluators: true
 # to keep the run schema consistent, but multimodal evaluation will require
 # multimodal-aware evaluators/datasets.
 evaluators:
+  - type: tellme
+    run_name: tellme
+    batch_size: 16
+    token_position: -1
+    layer_ratio: 0.6666
+    dataset:
+      name: tellme/beaver_tails_filtered
+      test_path: dataset/tellme/test.csv
+    summarizer:
+      type: tellme
+
+
   - type: xboundary
     run_name: x-boundary
     batch_size: 8
@@ -37,6 +49,27 @@ evaluators:
       type: xboundary
       select_by: boundary_ratio
       include_both_selections: true
+
+
+  - type: spin
+    run_name: spin
+    nsamples: 128
+    seed: 0
+    q: 5e-7
+    target_module: mlp
+    per_layer: true
+    per_module: false
+    device: cuda
+    save_coupling_plot: true
+    dataset:
+      name: spin/csv_bundle
+      dataset1_name: privacy
+      dataset2_name: fairness
+      dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
+    summarizer:
+      type: spin
+      top_layers: 5
 
 summarizer:
   type: combined

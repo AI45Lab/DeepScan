@@ -373,34 +373,103 @@ class TellMeEvaluator(BaseEvaluator):
 
     @staticmethod
     def _get_layer_module(model: Any, layer_index: int):
-        # Common huggingface-style locations
-        candidates = []
-        if hasattr(model, "model"):
-            inner = model.model
-            candidates.extend(
-                [
-                    getattr(inner, "layers", None),
-                    getattr(getattr(inner, "model", None), "layers", None),
-                    getattr(inner, "h", None),
-                    getattr(inner, "blocks", None),
-                ]
+        """
+        Resolve a transformer block module at `layer_index` across a variety of HF LLM/VLM
+        wrappers (including multimodal models like Gemma3ForConditionalGeneration).
+        """
+        torch_mod = _require_torch()
+
+        # Unwrap runner-style objects that expose an underlying HF model as `.model`.
+        hf_model = model.model if hasattr(model, "model") else model
+
+        def _get_chain(obj: Any, dotted: str) -> Any:
+            cur = obj
+            for part in dotted.split("."):
+                cur = getattr(cur, part)
+            return cur
+
+        # Common explicit paths across HF models (LLMs and VLM wrappers).
+        # NOTE: Gemma3ForConditionalGeneration typically nests the text stack under
+        # `language_model` (or similar), so we include those.
+        paths = [
+            # Decoder-only LLMs
+            "model.layers",
+            "model.model.layers",
+            "layers",
+            "transformer.h",
+            "transformer.layers",
+            "gpt_neox.layers",
+            "decoder.layers",
+            "model.decoder.layers",
+            "model.transformer.h",
+            # Multimodal wrappers (VLMs)
+            "language_model.model.layers",
+            "language_model.layers",
+            "language_model.transformer.h",
+            "language_model.transformer.layers",
+            "model.language_model.model.layers",
+            "model.language_model.layers",
+            "model.language_model.transformer.h",
+            "model.language_model.transformer.layers",
+            "text_model.model.layers",
+            "text_model.layers",
+            "model.text_model.model.layers",
+            "model.text_model.layers",
+        ]
+
+        for p in paths:
+            try:
+                seq = _get_chain(hf_model, p)
+                if isinstance(seq, torch_mod.nn.ModuleList):
+                    if len(seq) > layer_index:
+                        return seq[layer_index]
+                if isinstance(seq, (list, tuple)) and len(seq) > layer_index:
+                    return seq[layer_index]
+            except Exception:
+                continue
+
+        # Heuristic scan fallback: pick the "best" ModuleList that looks like transformer blocks.
+        best_name = None
+        best_list = None
+        best_score = -1
+        try:
+            for name, module in hf_model.named_modules():
+                if not isinstance(module, torch_mod.nn.ModuleList):
+                    continue
+                if len(module) <= 0:
+                    continue
+                score = 0
+                lowered = name.lower()
+                if lowered.endswith(("layers", ".h", "blocks")) or ".layers" in lowered or lowered.endswith(".h"):
+                    score += 10
+                score += min(len(module), 200)  # prefer larger blocklists
+                try:
+                    child0 = module[0]
+                    for attr in ("self_attn", "mlp", "attention", "attn"):
+                        if hasattr(child0, attr):
+                            score += 3
+                except Exception:
+                    pass
+                if score > best_score:
+                    best_score = score
+                    best_name = name
+                    best_list = module
+        except Exception:
+            best_list = None
+
+        if best_list is not None and len(best_list) > layer_index:
+            logger.info(
+                "TellMe: using transformer block list '%s' (len=%d) for hooks",
+                best_name,
+                len(best_list),
             )
-        candidates.extend(
-            [
-                getattr(model, "layers", None),
-                getattr(model, "h", None),
-                getattr(model, "blocks", None),
-                getattr(getattr(model, "transformer", None), "h", None),
-                getattr(getattr(model, "transformer", None), "layers", None),
-            ]
-        )
+            return best_list[layer_index]
 
-        for cand in candidates:
-            if cand is not None and hasattr(cand, "__len__") and len(cand) > layer_index:
-                return cand[layer_index]
-
+        model_cls = getattr(hf_model, "__class__", type(hf_model)).__name__
         raise AttributeError(
-            "TellMeEvaluator could not find transformer layers on the provided model."
+            "TellMeEvaluator could not find transformer layers on the provided model. "
+            f"(model_class={model_cls}; tried common HF paths incl. language_model/text_model, "
+            "then a ModuleList heuristic scan)"
         )
 
     @staticmethod

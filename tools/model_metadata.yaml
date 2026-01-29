@@ -1,0 +1,89 @@
+# Optional model metadata used by `tools/summarize_exp_to_csv.py`.
+#
+# Keys can be:
+# - a model `run_name` (recommended; e.g. "qwen2.5-7b")
+# - or a human `model_name` (e.g. "Qwen2.5-7B-Instruct")
+# - or anything else you want, as long as it matches one of the lookup keys
+#   printed by the script when metadata is missing.
+#
+# All fields are optional; missing fields will be left blank in the CSV.
+#
+# Example:
+# qwen2.5-7b:
+#   release_month_year: "Sep 2024"
+#   organization: "Alibaba"
+#   country: "🇨🇳"
+#   open_source_status: "yes"        # yes/no (also accepts true/false, open/closed)
+#   reasoning_capability: "yes"      # yes/no
+#
+# Fill in (or extend) entries below as needed.
+
+qwen2.5-7b:
+  release_month_year: "Sep 2024"
+  organization: "Alibaba"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+qwen2.5-14b:
+  release_month_year: "Sep 2024"
+  organization: "Alibaba"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+qwen2.5-72b:
+  release_month_year: "Sep 2024"
+  organization: "Alibaba"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+llama3.3-70b-instruct:
+  release_month_year: "Dec 2024"
+  organization: "Meta"
+  country: "🇺🇸"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+mistral-small-24b:
+  release_month_year: "Jan 2025"
+  organization: "Mistral AI"
+  country: "🇫🇷"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+internlm3-8b:
+  release_month_year: "Jan 2025"
+  organization: "Shanghai AI Laboratory"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+internvl3.5-14b:
+  release_month_year: "Dec 2024"
+  organization: "Shanghai AI Laboratory"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+gemma-3-27b-it:
+  release_month_year: "Jan 2025"
+  organization: "Google"
+  country: "🇺🇸"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+
+glm-4.5-air:
+  release_month_year: ""
+  organization: "Z.ai"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+
+internvl3.5-241b-a28b:
+  release_month_year: "Dec 2024"
+  organization: "Shanghai AI Laboratory"
+  country: "🇨🇳"
+  open_source_status: "yes"
+  reasoning_capability: "yes"
+
+gemma-3-27b-it:
+  release_month_year: "Jan 2025"
+  organization: "Google"
+  country: "🇺🇸"
+  open_source_status: "yes"
+  reasoning_capability: "no"
