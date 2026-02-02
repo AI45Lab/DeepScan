@@ -1,6 +1,12 @@
-# DeepScan Framework（中文简介）
+<div align="center">
+  <img src="logo.svg" alt="DeepScan Framework" width="1000px"/>
+</div>
+<div style="height: 20px;"></div>
 
-面向大语言模型与多模态大模型的可扩展诊断框架，围绕“注册 → 配置 → 执行 → 汇总”设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
+
+# DeepScan: 面向大语言模型的诊断框架
+
+面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
 ## 设计与核心组件
 

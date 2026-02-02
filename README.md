@@ -1,4 +1,10 @@
-# DeepScan Framework
+<div align="center">
+  <img src="logo.svg" alt="DeepScan Framework" width="1000px"/>
+</div>
+
+<div style="height: 20px;"></div>
+
+# DeepScan: Diagnostic Framework for LLMs
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). This framework provides a modular architecture for evaluating models through neuron attribution and representation engineering techniques.
 
