@@ -1,6 +1,6 @@
 import pytest
 
-from llm_diagnose.models.base_runner import (
+from deepscan.models.base_runner import (
     BaseModelRunner,
     GenerationRequest,
     GenerationResponse,

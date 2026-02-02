@@ -122,7 +122,7 @@ evaluators:
   #   top_k: 20
   #   top_tokens: 15
   #   # optionally, to reuse *existing* MI-Peaks artifacts for strict reproduction:
-  #   artifact_root: /mnt/shared-storage-user/guojiaxuan/code/LLM-Diagnose-Framework/cache/mi-peaks
+  #   artifact_root: /mnt/shared-storage-user/guojiaxuan/code/DeepScan/cache/mi-peaks
   #   reuse_cache: false
   #   dataset:
   #     name: mi-peaks/math_train_12k

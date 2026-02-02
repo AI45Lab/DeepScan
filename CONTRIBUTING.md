@@ -1,6 +1,6 @@
-# Contributing to LLM-Diagnose Framework
+# Contributing to DeepScan Framework
 
-Thank you for your interest in contributing to the LLM-Diagnose Framework! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to the DeepScan Framework! This document provides guidelines and instructions for contributing.
 
 ## How to Contribute
 
@@ -30,9 +30,9 @@ If you find a bug or have a feature request, please open an issue on GitHub with
    pytest
    
    # Run linting
-   black llm_diagnose/
-   flake8 llm_diagnose/
-   mypy llm_diagnose/
+   black deepscan/
+   flake8 deepscan/
+   mypy deepscan/
    ```
 
 4. **Commit your changes** with clear, descriptive commit messages
@@ -61,35 +61,35 @@ If you find a bug or have a feature request, please open an issue on GitHub with
 
 ### Project Structure
 
-- **Models**: Add new model runners in `llm_diagnose/models/`
-- **Evaluators**: Add new evaluators in `llm_diagnose/evaluators/`
-- **Datasets**: Add new dataset loaders in `llm_diagnose/datasets/`
-- **Summarizers**: Add new summarizers in `llm_diagnose/summarizers/`
+- **Models**: Add new model runners in `deepscan/models/`
+- **Evaluators**: Add new evaluators in `deepscan/evaluators/`
+- **Datasets**: Add new dataset loaders in `deepscan/datasets/`
+- **Summarizers**: Add new summarizers in `deepscan/summarizers/`
 
 ### Adding New Components
 
 #### Adding a New Model Runner
 
-1. Create a new file in `llm_diagnose/models/` (e.g., `my_model.py`)
+1. Create a new file in `deepscan/models/` (e.g., `my_model.py`)
 2. Implement a class inheriting from `BaseModelRunner`
 3. Register the model in the model registry:
    ```python
-   from llm_diagnose.registry.model_registry import get_model_registry
+   from deepscan.registry.model_registry import get_model_registry
    
    @get_model_registry().register_model("my_model")
    def create_my_model(**kwargs):
        # Your model creation logic
        return MyModelRunner(...)
    ```
-4. Import and register in `llm_diagnose/models/__init__.py`
+4. Import and register in `deepscan/models/__init__.py`
 
 #### Adding a New Evaluator
 
-1. Create a new file in `llm_diagnose/evaluators/` (e.g., `my_evaluator.py`)
+1. Create a new file in `deepscan/evaluators/` (e.g., `my_evaluator.py`)
 2. Implement a class inheriting from `BaseEvaluator`
 3. Register the evaluator:
    ```python
-   from llm_diagnose.evaluators.registry import get_evaluator_registry
+   from deepscan.evaluators.registry import get_evaluator_registry
    
    @get_evaluator_registry().register_evaluator("my_evaluator")
    class MyEvaluator(BaseEvaluator):
@@ -97,22 +97,22 @@ If you find a bug or have a feature request, please open an issue on GitHub with
            # Your evaluation logic
            return results
    ```
-4. Add to `llm_diagnose/evaluators/__init__.py` if needed
+4. Add to `deepscan/evaluators/__init__.py` if needed
 
 #### Adding a New Dataset
 
-1. Create a new file in `llm_diagnose/datasets/` (e.g., `my_dataset.py`)
+1. Create a new file in `deepscan/datasets/` (e.g., `my_dataset.py`)
 2. Implement a dataset loader function
 3. Register the dataset:
    ```python
-   from llm_diagnose.registry.dataset_registry import get_dataset_registry
+   from deepscan.registry.dataset_registry import get_dataset_registry
    
    @get_dataset_registry().register_dataset("my_dataset")
    def load_my_dataset(**kwargs):
        # Your dataset loading logic
        return dataset
    ```
-4. Add to `llm_diagnose/datasets/__init__.py` if needed
+4. Add to `deepscan/datasets/__init__.py` if needed
 
 ## Testing
 
@@ -132,8 +132,8 @@ If you find a bug or have a feature request, please open an issue on GitHub with
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/LLM-Diagnose-Framework.git
-cd LLM-Diagnose-Framework
+git clone https://github.com/AI45Lab/DeepScan.git
+cd DeepScan
 
 # Install in development mode with all dependencies
 pip install -e ".[dev,all]"
@@ -142,14 +142,14 @@ pip install -e ".[dev,all]"
 pytest
 
 # Format code
-black llm_diagnose/
+black deepscan/
 
 # Type checking
-mypy llm_diagnose/
+mypy deepscan/
 ```
 
 ## Questions?
 
 If you have questions about contributing, please open an issue or contact the maintainers.
 
-Thank you for contributing to LLM-Diagnose Framework!
+Thank you for contributing to DeepScan Framework!

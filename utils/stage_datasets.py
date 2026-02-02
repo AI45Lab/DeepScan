@@ -75,7 +75,7 @@ def _glob_existing(paths: Iterable[Path]) -> list[Path]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Stage datasets into LLM-Diagnose-Framework/dataset/")
+    parser = argparse.ArgumentParser(description="Stage datasets into DeepScan/dataset/")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--link", action="store_true", help="Symlink files/directories (default)")
     mode.add_argument("--copy", action="store_true", help="Copy files/directories")

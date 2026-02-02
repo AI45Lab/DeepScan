@@ -1,4 +1,4 @@
-# LLM-Diagnose Framework
+# DeepScan Framework
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). This framework provides a modular architecture for evaluating models through neuron attribution and representation engineering techniques.
 
@@ -60,7 +60,7 @@ pip install -e ".[api]"           # FastAPI + Uvicorn
 
 **Python API:**
 ```python
-from llm_diagnose import run_from_config
+from deepscan import run_from_config
 
 # YAML/JSON or dict with model/dataset/evaluator sections
 results = run_from_config("examples/config.tellme.yaml")
@@ -80,16 +80,16 @@ results = run_from_config(
 **CLI (no Python code needed):**
 ```bash
 # Basic usage
-python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs
+python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
 
 # With custom run ID
-python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
+python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
 
 # Dry run (validate config without loading model/dataset)
-python -m llm_diagnose.run --config examples/config.tellme.yaml --dry-run
+python -m deepscan.run --config examples/config.tellme.yaml --dry-run
 
 # Optional: also write a single consolidated JSON to a specific location
-python -m llm_diagnose.run --config examples/config.tellme.yaml --output results.json
+python -m deepscan.run --config examples/config.tellme.yaml --output results.json
 ```
 
 ## Quick Start
@@ -99,8 +99,8 @@ python -m llm_diagnose.run --config examples/config.tellme.yaml --output results
 #### Registering Individual Models
 
 ```python
-from llm_diagnose.registry.model_registry import get_model_registry
-from llm_diagnose.registry.dataset_registry import get_dataset_registry
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
 
 # IMPORTANT: use the global registries so `run_from_config()` can find your entries
 model_registry = get_model_registry()
@@ -124,7 +124,7 @@ For model families with multiple generations, organize by **generation** rather 
 **Option 1: Register by generation (Recommended)**
 
 ```python
-from llm_diagnose.registry.model_registry import get_model_registry
+from deepscan.registry.model_registry import get_model_registry
 
 registry = get_model_registry()
 
@@ -187,7 +187,7 @@ runner = registry.get_model("qwen3/Qwen3-8B", device="cuda")
 Qwen models are automatically registered when you import the framework:
 
 ```python
-from llm_diagnose.registry.model_registry import get_model_registry
+from deepscan.registry.model_registry import get_model_registry
 
 # Models are already registered - just use them!
 registry = get_model_registry()
@@ -197,21 +197,21 @@ runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 Or simply import the framework and models are ready:
 
 ```python
-import llm_diagnose  # Qwen models are auto-registered
-from llm_diagnose.registry.model_registry import get_model_registry
+import deepscan  # Qwen models are auto-registered
+from deepscan.registry.model_registry import get_model_registry
 
 registry = get_model_registry()
 runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
-See `llm_diagnose/models/` for model implementations and `examples/` for end-to-end evaluation pipelines.
+See `deepscan/models/` for model implementations and `examples/` for end-to-end evaluation pipelines.
 
 #### Pre-registered resources (models + datasets)
 
 The framework ships with ready-to-use registrations that are loaded automatically
-when you `import llm_diagnose`:
+when you `import deepscan`:
 
-**Models** (see `llm_diagnose/models/` for implementations):
+**Models** (see `deepscan/models/` for implementations):
 - **Qwen**: qwen / qwen2 / qwen2.5 / qwen3 variants
 - **Llama**: Llama 2/3 variants
 - **Mistral**: Mistral and Ministral3 (multimodal)
@@ -226,9 +226,9 @@ when you `import llm_diagnose`:
 - `xboundary/diagnostic` (X-Boundary diagnostic dataset)
 
 ```python
-import llm_diagnose
-from llm_diagnose.registry.model_registry import get_model_registry
-from llm_diagnose.registry.dataset_registry import get_dataset_registry
+import deepscan
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
 
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
@@ -259,8 +259,8 @@ Model registry lookups now return a **model runner**—an object that exposes a 
 `generate()` interface and keeps the underlying Hugging Face model/tokenizer handy.
 
 ```python
-from llm_diagnose.models.base_runner import GenerationRequest, PromptMessage, PromptContent
-from llm_diagnose.registry.model_registry import get_model_registry
+from deepscan.models.base_runner import GenerationRequest, PromptMessage, PromptContent
+from deepscan.registry.model_registry import get_model_registry
 
 runner = get_model_registry().get_model(
     "qwen3",
@@ -291,7 +291,7 @@ so existing diagnostic code can still reach low-level APIs when necessary.
 ### 2. Load Configuration
 
 ```python
-from llm_diagnose import ConfigLoader
+from deepscan import ConfigLoader
 
 # Load from file
 config = ConfigLoader.from_file("config.yaml")
@@ -309,9 +309,9 @@ config = ConfigLoader.from_dict({
 Evaluators are typically used through `run_from_config`, but can also be used programmatically:
 
 ```python
-from llm_diagnose.evaluators.registry import get_evaluator_registry
-from llm_diagnose.registry.model_registry import get_model_registry
-from llm_diagnose.registry.dataset_registry import get_dataset_registry
+from deepscan.evaluators.registry import get_evaluator_registry
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
 
 # Get registries
 evaluator_registry = get_evaluator_registry()
@@ -361,8 +361,8 @@ results = run_from_config(
 ### 5. Create Custom Evaluators
 
 ```python
-from llm_diagnose.evaluators.base import BaseEvaluator
-from llm_diagnose.evaluators.registry import get_evaluator_registry
+from deepscan.evaluators.base import BaseEvaluator
+from deepscan.evaluators.registry import get_evaluator_registry
 
 class CustomEvaluator(BaseEvaluator):
     def evaluate(self, model, dataset, **kwargs):
@@ -382,7 +382,7 @@ evaluator = registry.create_evaluator("custom_eval", param1=value1)
 ### 6. Summarize Results
 
 ```python
-from llm_diagnose.summarizers.base import BaseSummarizer
+from deepscan.summarizers.base import BaseSummarizer
 
 class SimpleSummarizer(BaseSummarizer):
     def summarize(self, results, benchmark=None, **kwargs):
@@ -405,17 +405,17 @@ print(report)
 
 ### Core Components
 
-1. **Registry System** (`llm_diagnose/registry/`)
+1. **Registry System** (`deepscan/registry/`)
    - `BaseRegistry`: Generic registry pattern
    - `ModelRegistry`: Model registration and retrieval
    - `DatasetRegistry`: Dataset registration and retrieval
 
-2. **Configuration** (`llm_diagnose/config/`)
+2. **Configuration** (`deepscan/config/`)
    - `ConfigLoader`: Load and manage YAML/JSON configurations
    - Supports dot notation for nested access
    - Merge multiple configurations
 
-3. **Evaluators** (`llm_diagnose/evaluators/`)
+3. **Evaluators** (`deepscan/evaluators/`)
    - `BaseEvaluator`: Abstract base class for all evaluators
    - `TellMeEvaluator`: Disentanglement metrics on BeaverTails
    - `XBoundaryEvaluator`: Safety boundary analysis
@@ -423,7 +423,7 @@ print(report)
    - `SpinEvaluator`: Self-play fine-tuning evaluation
    - `EvaluatorRegistry`: Registry for evaluator classes
 
-4. **Summarizers** (`llm_diagnose/summarizers/`)
+4. **Summarizers** (`deepscan/summarizers/`)
    - `BaseSummarizer`: Abstract base class for all summarizers
    - `SummarizerRegistry`: Registry for summarizer classes
    - Multiple output formats (dict, JSON, Markdown, text)
@@ -437,8 +437,8 @@ print(report)
 3. Register it using the evaluator registry
 
 ```python
-from llm_diagnose.evaluators.base import BaseEvaluator
-from llm_diagnose.evaluators.registry import get_evaluator_registry
+from deepscan.evaluators.base import BaseEvaluator
+from deepscan.evaluators.registry import get_evaluator_registry
 
 class MyEvaluator(BaseEvaluator):
     def evaluate(self, model, dataset, **kwargs):
@@ -459,8 +459,8 @@ registry.register_evaluator("my_evaluator")(MyEvaluator)
 3. Register it using the summarizer registry
 
 ```python
-from llm_diagnose.summarizers.base import BaseSummarizer
-from llm_diagnose.summarizers.registry import get_summarizer_registry
+from deepscan.summarizers.base import BaseSummarizer
+from deepscan.summarizers.registry import get_summarizer_registry
 
 class MySummarizer(BaseSummarizer):
     def summarize(self, results, benchmark=None, **kwargs):
@@ -526,10 +526,10 @@ pip install -e ".[dev]"
 pytest
 
 # Format code
-black llm_diagnose/
+black deepscan/
 
 # Type checking
-mypy llm_diagnose/
+mypy deepscan/
 ```
 
 ## License

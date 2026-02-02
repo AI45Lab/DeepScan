@@ -1,4 +1,4 @@
-# LLM-Diagnose Framework（中文简介）
+# DeepScan Framework（中文简介）
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕“注册 → 配置 → 执行 → 汇总”设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
@@ -75,19 +75,19 @@ pip install -e ".[api]"            # FastAPI + Uvicorn
 
 ```bash
 # 运行 TELLME 诊断
-python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs
+python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
 
 # 运行 X-Boundary 诊断
-python -m llm_diagnose.run --config examples/config.xboundary.yaml --output-dir runs
+python -m deepscan.run --config examples/config.xboundary.yaml --output-dir runs
 
 # Dry Run: 仅验证配置与注册项（不加载模型/数据）
-python -m llm_diagnose.run --config examples/config.tellme.yaml --dry-run
+python -m deepscan.run --config examples/config.tellme.yaml --dry-run
 ```
 
 ### Python
 
 ```python
-from llm_diagnose import run_from_config
+from deepscan import run_from_config
 
 # 运行 TELLME 诊断
 results = run_from_config("examples/config.tellme.yaml")
@@ -198,7 +198,7 @@ summarizer:
 
 - **新增模型**
   ```python
-  from llm_diagnose.registry.model_registry import get_model_registry
+  from deepscan.registry.model_registry import get_model_registry
   registry = get_model_registry()
 
   @registry.register_model("my_llm", model_family="custom")
@@ -207,7 +207,7 @@ summarizer:
   ```
 - **新增数据集**
   ```python
-  from llm_diagnose.registry.dataset_registry import get_dataset_registry
+  from deepscan.registry.dataset_registry import get_dataset_registry
   registry = get_dataset_registry()
 
   @registry.register_dataset("my_dataset")
@@ -216,8 +216,8 @@ summarizer:
   ```
 - **新增评估器**
   ```python
-  from llm_diagnose.evaluators import NeuronAttributionEvaluator
-  from llm_diagnose.evaluators.registry import get_evaluator_registry
+  from deepscan.evaluators import NeuronAttributionEvaluator
+  from deepscan.evaluators.registry import get_evaluator_registry
 
   class MyEvaluator(NeuronAttributionEvaluator):
       def _compute_attributions(self, model, dataset, target_layers, target_neurons=None):
@@ -227,8 +227,8 @@ summarizer:
   ```
 - **新增汇总器**
   ```python
-  from llm_diagnose.summarizers import BaseSummarizer
-  from llm_diagnose.summarizers.registry import get_summarizer_registry
+  from deepscan.summarizers import BaseSummarizer
+  from deepscan.summarizers.registry import get_summarizer_registry
 
   class MySummarizer(BaseSummarizer):
       def summarize(self, results, benchmark=None, **kwargs):

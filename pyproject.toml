@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llm-diagnose"
+name = "deepscan"
 version = "0.1.0"
-description = "A flexible and extensible framework for diagnosing LLMs and MLLMs"
+description = "DeepScan: A flexible and extensible framework for diagnosing LLMs and MLLMs"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {text = "MIT"}
@@ -108,13 +108,13 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/LLM-Diagnose-Framework"
-Repository = "https://github.com/yourusername/LLM-Diagnose-Framework"
-Issues = "https://github.com/yourusername/LLM-Diagnose-Framework/issues"
+Homepage = "https://github.com/AI45Lab/DeepScan"
+Repository = "https://github.com/AI45Lab/DeepScan"
+Issues = "https://github.com/AI45Lab/DeepScan/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["llm_diagnose*"]
+include = ["deepscan*"]
 
 [tool.black]
 line-length = 100

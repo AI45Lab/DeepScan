@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from llm_diagnose.run import run_from_config
+from deepscan.run import run_from_config
 
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
