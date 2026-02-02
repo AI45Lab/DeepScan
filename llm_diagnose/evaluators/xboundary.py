@@ -397,7 +397,6 @@ class XBoundaryEvaluator(BaseEvaluator):
             "name": getattr(model, "model_name", "unknown"),
             "num_samples": len(ds),
             "metrics": metrics_struct,
-            # Keep the original key for backward compatibility with any callers
             "metrics_by_layer": metrics_by_layer,
             "artifacts": {
                 "output_dir": str(out_path.resolve()) if out_path is not None else None,

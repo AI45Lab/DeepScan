@@ -3,8 +3,7 @@ model:
   model_name: Qwen2.5-7B-Instruct
   device: auto
   load_in_8bit: false
-  path: /root/models/Qwen2.5-7B-Instruct
-  # Match the checkpoint's native dtype (see /root/models/Qwen2.5-7B-Instruct/config.json: torch_dtype=bfloat16)
+  path: /path/to/Qwen2.5-7B-Instruct
   dtype: bfloat16
   trust_remote_code: true
   load_tokenizer: true
@@ -26,7 +25,7 @@ evaluators:
     layer_ratio: 0.6666
     dataset:
       name: tellme/beaver_tails_filtered
-      test_path: /root/code/LLM-Diagnose-Framework/dataset/tellme/test.csv
+      test_path: dataset/tellme/test.csv
     summarizer:
       type: tellme
 
@@ -38,7 +37,7 @@ evaluators:
     save_tsne: true
     dataset:
       name: xboundary/diagnostic
-      data_dir: /root/code/LLM-Diagnose-Framework/dataset/xboundary
+      data_dir: dataset/xboundary
       # Match original X-Boundary default: --num_samples (per class)
       num_samples_per_class: 200
     summarizer:
@@ -61,8 +60,8 @@ evaluators:
       name: spin/csv_bundle
       dataset1_name: privacy
       dataset2_name: fairness
-      dataset1_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_privacy_safe_1k.csv
-      dataset2_path: /root/code/LLM-Diagnose-Framework/dataset/spin/beaver_train330k_fairness_safe_1k.csv
+      dataset1_path: dataset/spin/beaver_train330k_privacy_safe_1k.csv
+      dataset2_path: dataset/spin/beaver_train330k_fairness_safe_1k.csv
     summarizer:
       type: spin
       top_layers: 5
@@ -91,7 +90,7 @@ evaluators:
     dataset:
       name: mi-peaks/math_train_12k
       sample_num: 10
-      csv_path: /root/code/LLM-Diagnose-Framework/dataset/mi_peaks/math_train_12k.csv
+      csv_path: dataset/mi_peaks/math_train_12k.csv
 
 # Run-level summarizer that aggregates all evaluators
 summarizer:

@@ -131,14 +131,15 @@ class InternLMCausalModelRunner(BaseModelRunner):
             if self.tokenizer is not None:
                 if getattr(self.tokenizer, "pad_token_id", None) is None and getattr(self.tokenizer, "eos_token_id", None) is not None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
-            if getattr(getattr(self.model, "config", None), "pad_token_id", None) is None:
+            model_config = getattr(self.model, "config", None)
+            if model_config is not None and getattr(model_config, "pad_token_id", None) is None:
                 eos_id = None
                 if self.tokenizer is not None:
                     eos_id = getattr(self.tokenizer, "eos_token_id", None)
                 if eos_id is None:
-                    eos_id = getattr(getattr(self.model, "config", None), "eos_token_id", None)
-                if eos_id is not None and getattr(self.model, "config", None) is not None:
-                    self.model.config.pad_token_id = eos_id
+                    eos_id = getattr(model_config, "eos_token_id", None)
+                if eos_id is not None:
+                    model_config.pad_token_id = eos_id
         except Exception:
             pass
 

@@ -43,8 +43,7 @@ htmlcov/
 .ipynb_checkpoints/
 
 # Config files (if containing secrets)
-config.local.yaml
-config.local.json
+task_configs/
 
 # Logs
 *.log
@@ -72,3 +71,7 @@ cache/
 # macos
 .DS_Store
 ._dataset
+
+# utils
+tools/
+utils/

@@ -50,8 +50,9 @@ class SpinSummarizer(BaseSummarizer):
 
         def _pick_spin_results(model_entry: Dict[str, Any]) -> Dict[str, Any]:
             """
-            Back-compat: single-evaluator runs store evaluator output in `model["results"]`.
-            Multi-evaluator runs store per-evaluator outputs in `model["evaluations"]` and/or `model["results_by_evaluator"]`.
+            Extract spin results from model entry.
+            Supports both single-evaluator runs (stored in `model["results"]`) and
+            multi-evaluator runs (stored in `model["evaluations"]` and/or `model["results_by_evaluator"]`).
             """
             if not isinstance(model_entry, dict):
                 return {}

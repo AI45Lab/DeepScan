@@ -36,19 +36,37 @@
 
 ## 安装
 
+**最小安装**（仅核心依赖）：
 ```bash
-# 安装框架依赖
 pip install -e .
+```
 
-# [Optional] 安装诊断方法依赖
-pip install -e ".[tellme]"
-pip install -e ".[xboundary]"
+**推荐安装**（包含大多数用例所需的常用依赖）：
+```bash
+pip install -e ".[default]"
+```
 
-# [Optional] 安装测试依赖
-pip install -e ".[dev]"
+**其他可选依赖**：
 
-# [Optional] 安装所有可选依赖
-pip install -e ".[all]"
+```bash
+# [可选] 模型运行器依赖
+pip install -e ".[qwen]"          # Qwen 模型
+pip install -e ".[glm]"            # GLM 模型
+pip install -e ".[ministral3]"     # Ministral 3 (多模态) 模型
+
+# [可选] 评估器依赖
+pip install -e ".[tellme]"         # TELLME 评估器
+pip install -e ".[xboundary]"      # X-Boundary 评估器
+pip install -e ".[mi_peaks]"       # MI-Peaks 评估器
+
+# [可选] 开发依赖
+pip install -e ".[dev]"            # 测试和代码质量工具
+
+# [可选] 所有评估器依赖
+pip install -e ".[all]"            # 包含所有评估器依赖
+
+# [可选] API 服务器（内部使用，开源版本不包含）
+pip install -e ".[api]"            # FastAPI + Uvicorn
 ```
 
 ## 快速上手
@@ -117,7 +135,7 @@ summarizer:
 ## 进阶用法
 
 - **多模型批量任务**：`model` 字段可传列表，同一数据集与评估器下批量对比多个模型，结果按模型独立目录写入。
-- **进度回调与 Webhook**：`run_from_config` 接受 `on_progress_*` 回调；CLI 支持 `--progress-webhook`，按状态上报进度百分比。
+- **进度回调**：`run_from_config` 接受 `on_progress_start`、`on_progress_update`、`on_progress_done` 回调，按状态上报进度百分比。也可使用 `progress_sink` 参数传入自定义进度跟踪对象。
 - **输出控制**：`--output-dir` 控制基目录；`--run-id` 自定义运行标识；`--output` 可将汇总直接写为单一 JSON。
 
 ## 已支持的诊断方法
@@ -152,9 +170,30 @@ summarizer:
     ```
 
 - **SPIN**
- TODO
+  - 指标：自对弈微调评估指标。
+  - 数据：需要特定的训练/测试数据集。
+  - 关键参数：`batch_size`、`max_length` 等。
+  - 依赖：安装 `.[tellme]` 或 `.[all]`。
+  - 配置示例：
+    ```yaml
+    evaluator:
+      type: spin
+      batch_size: 4
+      max_length: 512
+    ```
+
 - **MI-Peaks**
- TODO
+  - 指标：模型内省与峰值分析。
+  - 数据：支持多种数据集格式。
+  - 关键参数：`batch_size`、`target_layers` 等。
+  - 依赖：安装 `.[mi_peaks]` 或 `.[all]`。
+  - 配置示例：
+    ```yaml
+    evaluator:
+      type: mi_peaks
+      batch_size: 4
+      target_layers: [8, 16, 24]
+    ```
 ## 扩展指引
 
 - **新增模型**
@@ -200,7 +239,22 @@ summarizer:
 
 ## 内置资源与示例
 
-- 模型：自动注册 Qwen 系列（qwen / qwen2 / qwen2.5 / qwen3 等）。
-- 数据集：BeaverTails（HF）及过滤 CSV 版本，支持 `datasets.load_dataset` 或 `save_to_disk` 本地加载。
-- 评估器：TELLME（解耦度指标）、X-Boundary（可视化与边界分析）。
-- 示例：`examples/config.tellme.yaml`、`examples/tellme_evaluation.py` 展示从配置到完整运行的流程。
+- **模型**：自动注册多个模型系列
+  - Qwen 系列：qwen / qwen2 / qwen2.5 / qwen3
+  - Llama 系列
+  - Mistral 系列（包括 Ministral3 多模态）
+  - Gemma 系列（包括 Gemma3 多模态）
+  - GLM 系列
+  - InternLM 系列
+  - InternVL 系列（多模态）
+- **数据集**：BeaverTails（HF）及过滤 CSV 版本，支持 `datasets.load_dataset` 或 `save_to_disk` 本地加载。
+- **评估器**：
+  - TELLME：解耦度指标
+  - X-Boundary：可视化与边界分析
+  - MI-Peaks：模型内省与峰值分析
+  - SPIN：自对弈微调评估
+- **示例**：
+  - `examples/config.tellme.yaml`、`examples/tellme_evaluation.py`：TELLME 评估
+  - `examples/config.xboundary.yaml`、`examples/xboundary_evaluation.py`：X-Boundary 评估
+  - `examples/ministral3_multimodal_demo.py`：多模态模型示例
+  - `examples/gemma3_multimodal_demo.py`：Gemma3 多模态示例

@@ -6,19 +6,29 @@ A flexible and extensible framework for diagnosing Large Language Models (LLMs) 
 
 - **Model Registry**: Register and manage model instances and factories
 - **Model Runners**: Consistent `generate`/`chat` abstraction across model families
+  - Supported models: Qwen (qwen/qwen2/qwen2.5/qwen3), Llama, Mistral, Gemma, GLM, InternLM, InternVL
 - **Dataset Registry**: Register and manage dataset instances and factories
 - **Configuration Management**: Load and manage configurations from YAML/JSON files
-- **Extensible Evaluators**: Two main types of evaluators:
-  - **Neuron Attribution**: Analyze which neurons contribute to model behavior
-  - **Representation Engineering**: Analyze and manipulate model representations
+- **Extensible Evaluators**: Built-in evaluators for various diagnostic tasks:
+  - **TELLME**: Disentanglement metrics on filtered BeaverTails
+  - **X-Boundary**: Safety boundary analysis with visualization
+  - **MI-Peaks**: Model introspection and peak analysis
+  - **SPIN**: Self-play fine-tuning evaluation
 - **Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
+- **Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluations
 - **Plugin Architecture**: Easy to extend with custom evaluators and summarizers
-- **TELLME Metrics**: Built-in evaluator for disentanglement metrics on filtered BeaverTails
+- **CLI Support**: Run evaluations directly from command line without writing code
 
 ## Installation
 
+**Minimal install** (core dependencies only):
 ```bash
 pip install -e .
+```
+
+**Recommended install** (includes common dependencies for most use cases):
+```bash
+pip install -e ".[default]"
 ```
 
 For development:
@@ -26,40 +36,57 @@ For development:
 pip install -e ".[dev]"
 ```
 
-Optional dependencies:
+Additional optional dependencies:
 
 ```bash
-# Hugging Face dataset loaders (BeaverTails + raw HF loading for TELLME/X-Boundary)
-pip install datasets
+# Model runner dependencies
+pip install -e ".[qwen]"          # Qwen models
+pip install -e ".[glm]"           # GLM models
+pip install -e ".[ministral3]"    # Ministral 3 (multimodal) models
 
-# Qwen runner dependencies (shared by evaluators)
-pip install -e ".[qwen]"
+# Evaluator dependencies
+pip install -e ".[tellme]"        # TELLME evaluator + metrics stack
+pip install -e ".[xboundary]"     # X-Boundary evaluator + visualization stack
+pip install -e ".[mi_peaks]"      # MI-Peaks evaluator
 
-# Ministral 3 (multimodal) runner dependencies
-# (per official model card: install Transformers from main + mistral-common>=1.8.6)
-pip install -e ".[ministral3]"
+# Convenience extras
+pip install -e ".[all]"           # All evaluator dependencies (tellme + xboundary + mi_peaks)
 
-# TELLME evaluator + metrics stack
-pip install -e ".[tellme]"
-
-# X-Boundary evaluator + visualization stack
-pip install -e ".[xboundary]"
-
-# Everything (tellme + xboundary + runner deps)
-pip install -e ".[all]"
+# API server (for internal use - not included in open-source core)
+pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
 ### End-to-end from a config (any evaluator)
+
+**Python API:**
 ```python
 from llm_diagnose import run_from_config
 
 # YAML/JSON or dict with model/dataset/evaluator sections
 results = run_from_config("examples/config.tellme.yaml")
+
+# With progress callbacks
+def on_progress(completed, total, desc):
+    print(f"{completed}/{total}: {desc}")
+
+results = run_from_config(
+    "examples/config.tellme.yaml",
+    on_progress_update=on_progress,
+    output_dir="results",
+    run_id="my_experiment",
+)
 ```
 
-CLI (no Python code needed):
+**CLI (no Python code needed):**
 ```bash
+# Basic usage
 python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs
+
+# With custom run ID
+python -m llm_diagnose.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
+
+# Dry run (validate config without loading model/dataset)
+python -m llm_diagnose.run --config examples/config.tellme.yaml --dry-run
 
 # Optional: also write a single consolidated JSON to a specific location
 python -m llm_diagnose.run --config examples/config.tellme.yaml --output results.json
@@ -177,16 +204,26 @@ registry = get_model_registry()
 runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
-See `llm_diagnose/models/qwen.py` and `examples/tellme_evaluation.py`
-for an end-to-end evaluation pipeline.
+See `llm_diagnose/models/` for model implementations and `examples/` for end-to-end evaluation pipelines.
 
 #### Pre-registered resources (models + datasets)
 
 The framework ships with ready-to-use registrations that are loaded automatically
 when you `import llm_diagnose`:
 
-- **Models**: Qwen (qwen / qwen2 / qwen2.5 / qwen3 variants; see `llm_diagnose/models/qwen.py`)
-- **Datasets**: BeaverTails (HF dataset) and `tellme/beaver_tails_filtered` (CSV loader)
+**Models** (see `llm_diagnose/models/` for implementations):
+- **Qwen**: qwen / qwen2 / qwen2.5 / qwen3 variants
+- **Llama**: Llama 2/3 variants
+- **Mistral**: Mistral and Ministral3 (multimodal)
+- **Gemma**: Gemma and Gemma3 (multimodal)
+- **GLM**: GLM-4 series
+- **InternLM**: InternLM2/3 variants
+- **InternVL**: InternVL3.5 (multimodal)
+
+**Datasets**:
+- BeaverTails (HF dataset)
+- `tellme/beaver_tails_filtered` (CSV loader)
+- `xboundary/diagnostic` (X-Boundary diagnostic dataset)
 
 ```python
 import llm_diagnose
@@ -196,12 +233,15 @@ from llm_diagnose.registry.dataset_registry import get_dataset_registry
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
 
+# Use any registered model
 model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
-dataset = dataset_registry.get_dataset("beaver_tails", split="330k_train")
+# Or Llama, Mistral, etc.
+
+# Use registered datasets
+dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path="/path/to/test.csv")
 ```
 
-> ℹ️ The built-in dataset loaders rely on Hugging Face `datasets`.  
-> Install it with `pip install datasets` if you plan to use the bundled datasets.
+> ℹ️ The built-in dataset loaders rely on Hugging Face `datasets` (included in core dependencies).
 
 To use a copy saved via `datasets.save_to_disk`, pass a local path:
 
@@ -266,55 +306,80 @@ config = ConfigLoader.from_dict({
 
 ### 3. Create and Use Evaluators
 
+Evaluators are typically used through `run_from_config`, but can also be used programmatically:
+
 ```python
-from llm_diagnose import NeuronAttributionEvaluator
+from llm_diagnose.evaluators.registry import get_evaluator_registry
 from llm_diagnose.registry.model_registry import get_model_registry
 from llm_diagnose.registry.dataset_registry import get_dataset_registry
 
-# Create an evaluator
-evaluator = NeuronAttributionEvaluator(
-    name="gradient_attribution",
-    attribution_method="gradient",
-)
-
-# Get model and dataset
+# Get registries
+evaluator_registry = get_evaluator_registry()
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
 
-model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
-dataset = dataset_registry.get_dataset("beaver_tails", split="330k_train")
+# Create evaluator from registry
+evaluator = evaluator_registry.create_evaluator(
+    "tellme",
+    batch_size=4,
+    layer_ratio=0.6666,
+    token_position=-1,
+)
 
-# Run evaluation
-results = evaluator.evaluate(
-    model,
-    dataset,
-    target_layers=["layer_0", "layer_1"],
-    top_k=10,
+# Get model and dataset
+model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path="/path/to/test.csv")
+
+# Run evaluation (typically done via run_from_config)
+# results = evaluator.evaluate(model, dataset, ...)
+```
+
+### 4. Progress Callbacks
+
+Monitor evaluation progress with callbacks:
+
+```python
+def on_start(total: Optional[int], description: str):
+    print(f"Starting: {description} ({total} items)")
+
+def on_update(completed: int, total: Optional[int], description: str):
+    if total:
+        pct = (completed / total) * 100
+        print(f"Progress: {completed}/{total} ({pct:.1f}%) - {description}")
+
+def on_done(completed: int, total: Optional[int], description: str):
+    print(f"Completed: {description}")
+
+results = run_from_config(
+    "config.yaml",
+    on_progress_start=on_start,
+    on_progress_update=on_update,
+    on_progress_done=on_done,
 )
 ```
 
-### 4. Create Custom Evaluators
+### 5. Create Custom Evaluators
 
 ```python
-from llm_diagnose import NeuronAttributionEvaluator
+from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.evaluators.registry import get_evaluator_registry
 
-class CustomAttributionEvaluator(NeuronAttributionEvaluator):
-    def _compute_attributions(self, model, dataset, target_layers, target_neurons=None):
-        # Your custom attribution logic here
-        attributions = {}
+class CustomEvaluator(BaseEvaluator):
+    def evaluate(self, model, dataset, **kwargs):
+        # Your custom evaluation logic here
+        results = {}
         # ... implementation ...
-        return attributions
+        return results
 
 # Register the evaluator
 registry = get_evaluator_registry()
-registry.register_evaluator("custom_attribution")(CustomAttributionEvaluator)
+registry.register_evaluator("custom_eval")(CustomEvaluator)
 
-# Use it
-evaluator = registry.create_evaluator("custom_attribution", attribution_method="custom")
+# Use it in config or programmatically
+evaluator = registry.create_evaluator("custom_eval", param1=value1)
 ```
 
-### 5. Summarize Results
+### 6. Summarize Results
 
 ```python
 from llm_diagnose.summarizers.base import BaseSummarizer
@@ -352,8 +417,10 @@ print(report)
 
 3. **Evaluators** (`llm_diagnose/evaluators/`)
    - `BaseEvaluator`: Abstract base class for all evaluators
-   - `NeuronAttributionEvaluator`: Base for neuron attribution methods
-   - `RepresentationEngineeringEvaluator`: Base for representation engineering methods
+   - `TellMeEvaluator`: Disentanglement metrics on BeaverTails
+   - `XBoundaryEvaluator`: Safety boundary analysis
+   - `MiPeaksEvaluator`: Model introspection and peak analysis
+   - `SpinEvaluator`: Self-play fine-tuning evaluation
    - `EvaluatorRegistry`: Registry for evaluator classes
 
 4. **Summarizers** (`llm_diagnose/summarizers/`)
@@ -365,18 +432,20 @@ print(report)
 
 ### Adding a New Evaluator
 
-1. Inherit from `NeuronAttributionEvaluator` or `RepresentationEngineeringEvaluator`
-2. Implement the required abstract methods
+1. Inherit from `BaseEvaluator`
+2. Implement the `evaluate` method
 3. Register it using the evaluator registry
 
 ```python
-from llm_diagnose import NeuronAttributionEvaluator
+from llm_diagnose.evaluators.base import BaseEvaluator
 from llm_diagnose.evaluators.registry import get_evaluator_registry
 
-class MyEvaluator(NeuronAttributionEvaluator):
-    def _compute_attributions(self, model, dataset, target_layers, target_neurons=None):
-        # Your implementation
-        pass
+class MyEvaluator(BaseEvaluator):
+    def evaluate(self, model, dataset, **kwargs):
+        # Your evaluation logic
+        results = {}
+        # ... implementation ...
+        return results
 
 # Register
 registry = get_evaluator_registry()
@@ -390,7 +459,7 @@ registry.register_evaluator("my_evaluator")(MyEvaluator)
 3. Register it using the summarizer registry
 
 ```python
-from llm_diagnose import BaseSummarizer
+from llm_diagnose.summarizers.base import BaseSummarizer
 from llm_diagnose.summarizers.registry import get_summarizer_registry
 
 class MySummarizer(BaseSummarizer):
@@ -431,10 +500,21 @@ evaluator:
 ## Examples
 
 See the `examples/` directory for complete usage examples:
-- `tellme_evaluation.py`: Run TELLME disentanglement metrics on Qwen (config-driven)
-- `config.tellme.yaml`: Ready-to-run config for TELLME
-- `config.example.yaml`: Template config (requires you to register the referenced model/dataset)
-- `QUICK_START_QWEN3.md`: Extra notes on Qwen registry usage
+
+**Evaluators:**
+- `config.tellme.yaml`: TELLME disentanglement metrics
+- `config.xboundary.yaml`: X-Boundary safety analysis
+- `config.mi_peaks.yaml`: MI-Peaks introspection
+- `config.spin.yaml`: SPIN evaluation
+
+**Python Scripts:**
+- `tellme_evaluation.py`: Run TELLME evaluation programmatically
+- `xboundary_evaluation.py`: Run X-Boundary evaluation programmatically
+- `ministral3_multimodal_demo.py`: Multimodal model example
+- `gemma3_multimodal_demo.py`: Gemma3 multimodal example
+
+**Combined Configs:**
+- `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: Multiple evaluators on same model
 
 ## Development
 
@@ -458,5 +538,5 @@ MIT License
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
 

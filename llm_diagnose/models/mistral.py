@@ -113,14 +113,15 @@ class MistralCausalModelRunner(BaseModelRunner):
             if self.tokenizer is not None:
                 if getattr(self.tokenizer, "pad_token_id", None) is None and getattr(self.tokenizer, "eos_token_id", None) is not None:
                     self.tokenizer.pad_token = self.tokenizer.eos_token
-            if getattr(getattr(self.model, "config", None), "pad_token_id", None) is None:
+            model_config = getattr(self.model, "config", None)
+            if model_config is not None and getattr(model_config, "pad_token_id", None) is None:
                 eos_id = None
                 if self.tokenizer is not None:
                     eos_id = getattr(self.tokenizer, "eos_token_id", None)
                 if eos_id is None:
-                    eos_id = getattr(getattr(self.model, "config", None), "eos_token_id", None)
-                if eos_id is not None and getattr(self.model, "config", None) is not None:
-                    self.model.config.pad_token_id = eos_id
+                    eos_id = getattr(model_config, "eos_token_id", None)
+                if eos_id is not None:
+                    model_config.pad_token_id = eos_id
         except Exception:
             pass
 
@@ -489,47 +490,12 @@ def register_mistral_models() -> None:
                         f"Model '{model_name}' not found in {gen}. Available models: {list(models_dict.keys())}"
                     )
                 model_config = models_dict[model_name]
-                model_path = model_config["path"]
-                generation_config = kwargs.pop("generation_config", None)
-                try:
-                    from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
-                except ImportError as exc:
-                    raise ImportError("transformers library is required. Install with: pip install transformers") from exc
-
-                torch_dtype = _coerce_torch_dtype(kwargs.get("torch_dtype", kwargs.get("dtype", "auto")))
-                model_kwargs: Dict[str, Any] = {
-                    "device_map": device,
-                    "torch_dtype": torch_dtype,
-                    "trust_remote_code": kwargs.get("trust_remote_code", False),
-                }
-
-                if kwargs.get("load_in_8bit", False):
-                    model_kwargs["load_in_8bit"] = True
-                elif kwargs.get("load_in_4bit", False):
-                    model_kwargs["load_in_4bit"] = True
-                    if "bitsandbytes" in kwargs:
-                        model_kwargs["bnb_4bit_compute_dtype"] = _coerce_torch_dtype(kwargs.get("bnb_4bit_compute_dtype", "float16"))
-
-                for key in ["max_memory", "offload_folder", "low_cpu_mem_usage", "attn_implementation"]:
-                    if key in kwargs:
-                        model_kwargs[key] = kwargs[key]
-
-                model_source = kwargs.pop("path", None) or model_path
-                model = AutoModelForCausalLM.from_pretrained(model_source, **model_kwargs)
-
-                tokenizer = None
-                if kwargs.get("load_tokenizer", True):
-                    tokenizer = AutoTokenizer.from_pretrained(
-                        model_source,
-                        trust_remote_code=kwargs.get("trust_remote_code", False),
-                    )
-
-                return MistralCausalModelRunner(
+                factory = _create_factory(
                     model_name=model_name,
-                    model=model,
-                    tokenizer=tokenizer,
-                    default_generation=generation_config,
+                    model_path=model_config["path"],
+                    description=model_config["description"],
                 )
+                return factory(device=device, **kwargs)
 
             return create_mistral_generation
 

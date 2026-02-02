@@ -160,7 +160,10 @@ def _get_gt_reference(sample: Any, layer: int):
 
 def _infer_model_tag(model_runner: Any) -> str:
     hf_model = getattr(model_runner, "model", model_runner)
-    name = getattr(hf_model, "name_or_path", None) or getattr(getattr(hf_model, "config", None), "_name_or_path", None)
+    name = getattr(hf_model, "name_or_path", None)
+    if not name:
+        model_config = getattr(hf_model, "config", None)
+        name = getattr(model_config, "_name_or_path", None) if model_config is not None else None
     if name:
         return str(name).split("/")[-1]
     return str(getattr(model_runner, "model_name", None) or "model")
@@ -513,7 +516,9 @@ class MiPeaksEvaluator(BaseEvaluator):
         num_blocks: Optional[int] = None
         try:
             # Prefer explicit config when present.
-            num_blocks = int(getattr(getattr(hf_model, "config", None), "num_hidden_layers"))
+            model_config = getattr(hf_model, "config", None)
+            if model_config is not None:
+                num_blocks = int(getattr(model_config, "num_hidden_layers"))
         except Exception:
             num_blocks = None
 

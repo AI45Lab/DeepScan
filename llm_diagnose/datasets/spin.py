@@ -140,7 +140,6 @@ def load_spin_csv_bundle(
             "dataset1": bundle.dataset1_path,
             "dataset2": bundle.dataset2_path,
         },
-        # Backward compatible optional preload (off by default).
         "preloaded": None,
     }
 
