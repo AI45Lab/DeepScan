@@ -1,31 +1,35 @@
 <div align="center">
-  <img src="logo.svg" alt="DeepScan Framework" width="1000px"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="logo-light.png">
+  <img alt="Fallback image description" src="logo-dark.png">
+</picture>
 </div>
 
 <div style="height: 20px;"></div>
 
-# DeepScan: Diagnostic Framework for LLMs
+# DeepScan: Diagnostic Framework for LLMs 🔬
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). This framework provides a modular architecture for evaluating models through neuron attribution and representation engineering techniques.
 
-## Features
+## ✨ Features
 
-- **Model Registry**: Register and manage model instances and factories
-- **Model Runners**: Consistent `generate`/`chat` abstraction across model families
+- **📦 Model Registry**: Register and manage model instances and factories
+- **🚀 Model Runners**: Consistent `generate`/`chat` abstraction across model families
   - Supported models: Qwen (qwen/qwen2/qwen2.5/qwen3), Llama, Mistral, Gemma, GLM, InternLM, InternVL
-- **Dataset Registry**: Register and manage dataset instances and factories
-- **Configuration Management**: Load and manage configurations from YAML/JSON files
-- **Extensible Evaluators**: Built-in evaluators for various diagnostic tasks:
+- **📊 Dataset Registry**: Register and manage dataset instances and factories
+- **⚙️ Configuration Management**: Load and manage configurations from YAML/JSON files
+- **🔍 Extensible Evaluators**: Built-in evaluators for various diagnostic tasks:
   - **TELLME**: Disentanglement metrics on filtered BeaverTails
   - **X-Boundary**: Safety boundary analysis with visualization
   - **MI-Peaks**: Model introspection and peak analysis
   - **SPIN**: Self-play fine-tuning evaluation
-- **Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
-- **Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluations
-- **Plugin Architecture**: Easy to extend with custom evaluators and summarizers
-- **CLI Support**: Run evaluations directly from command line without writing code
+- **📝 Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
+- **📈 Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluations
+- **🔌 Plugin Architecture**: Easy to extend with custom evaluators and summarizers
+- **💻 CLI Support**: Run evaluations directly from command line without writing code
 
-## Installation
+## 📥 Installation
 
 **Minimal install** (core dependencies only):
 ```bash
@@ -37,32 +41,32 @@ pip install -e .
 pip install -e ".[default]"
 ```
 
-For development:
+**For development:**
 ```bash
 pip install -e ".[dev]"
 ```
 
-Additional optional dependencies:
+**Additional optional dependencies:**
 
 ```bash
-# Model runner dependencies
+# 🤖 Model runner dependencies
 pip install -e ".[qwen]"          # Qwen models
 pip install -e ".[glm]"           # GLM models
 pip install -e ".[ministral3]"    # Ministral 3 (multimodal) models
 
-# Evaluator dependencies
+# 🔬 Evaluator dependencies
 pip install -e ".[tellme]"        # TELLME evaluator + metrics stack
 pip install -e ".[xboundary]"     # X-Boundary evaluator + visualization stack
 pip install -e ".[mi_peaks]"      # MI-Peaks evaluator
 
-# Convenience extras
+# 🎁 Convenience extras
 pip install -e ".[all]"           # All evaluator dependencies (tellme + xboundary + mi_peaks)
 
-# API server (for internal use - not included in open-source core)
+# 🌐 API server (for internal use - not included in open-source core)
 pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
-### End-to-end from a config (any evaluator)
+### 🎯 End-to-end from a config (any evaluator)
 
 **Python API:**
 ```python
@@ -83,26 +87,26 @@ results = run_from_config(
 )
 ```
 
-**CLI (no Python code needed):**
+**CLI** (no Python code needed):
 ```bash
-# Basic usage
+# ✅ Basic usage
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
 
-# With custom run ID
+# 🏷️ With custom run ID
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
 
-# Dry run (validate config without loading model/dataset)
+# 🔍 Dry run (validate config without loading model/dataset)
 python -m deepscan.run --config examples/config.tellme.yaml --dry-run
 
-# Optional: also write a single consolidated JSON to a specific location
+# 💾 Optional: also write a single consolidated JSON to a specific location
 python -m deepscan.run --config examples/config.tellme.yaml --output results.json
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-### 1. Register Models and Datasets (global registries)
+### 1. Register Models and Datasets (global registries) 📝
 
-#### Registering Individual Models
+#### 🔧 Registering Individual Models
 
 ```python
 from deepscan.registry.model_registry import get_model_registry
@@ -123,11 +127,11 @@ def create_sst2():
     return load_dataset("glue", "sst2", split="test")
 ```
 
-#### Registering Model Families (e.g., Qwen)
+#### Registering Model Families (e.g., Qwen) 🏗️
 
 For model families with multiple generations, organize by **generation** rather than size, since different generations may have different configurations even at the same size.
 
-**Option 1: Register by generation (Recommended)**
+**Option 1: Register by generation (Recommended)** ⭐
 
 ```python
 from deepscan.registry.model_registry import get_model_registry
@@ -165,7 +169,7 @@ def create_qwen3(model_name: str = "Qwen3-8B", device: str = "cuda", **kwargs):
 runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 ```
 
-**Option 2: Register individual models with generation prefix**
+**Option 2: Register individual models with generation prefix** 🔑
 
 ```python
 @registry.register_model(
@@ -186,9 +190,9 @@ def create_qwen3_8b(device: str = "cuda", **kwargs):
 runner = registry.get_model("qwen3/Qwen3-8B", device="cuda")
 ```
 
-**Why organize by generation?** Different Qwen generations (qwen, qwen2, qwen3) may have different architectures, tokenizers, and configurations even at the same parameter count.
+**💡 Why organize by generation?** Different Qwen generations (qwen, qwen2, qwen3) may have different architectures, tokenizers, and configurations even at the same parameter count.
 
-**Option 3: Use pre-registered models (Recommended)**
+**Option 3: Use pre-registered models (Recommended)** ⭐
 
 Qwen models are automatically registered when you import the framework:
 
@@ -212,12 +216,12 @@ runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 
 See `deepscan/models/` for model implementations and `examples/` for end-to-end evaluation pipelines.
 
-#### Pre-registered resources (models + datasets)
+#### Pre-registered resources (models + datasets) 🎁
 
 The framework ships with ready-to-use registrations that are loaded automatically
 when you `import deepscan`:
 
-**Models** (see `deepscan/models/` for implementations):
+**🤖 Models** (see `deepscan/models/` for implementations):
 - **Qwen**: qwen / qwen2 / qwen2.5 / qwen3 variants
 - **Llama**: Llama 2/3 variants
 - **Mistral**: Mistral and Ministral3 (multimodal)
@@ -226,7 +230,7 @@ when you `import deepscan`:
 - **InternLM**: InternLM2/3 variants
 - **InternVL**: InternVL3.5 (multimodal)
 
-**Datasets**:
+**📊 Datasets**:
 - BeaverTails (HF dataset)
 - `tellme/beaver_tails_filtered` (CSV loader)
 - `xboundary/diagnostic` (X-Boundary diagnostic dataset)
@@ -247,7 +251,7 @@ model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
 dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path="/path/to/test.csv")
 ```
 
-> ℹ️ The built-in dataset loaders rely on Hugging Face `datasets` (included in core dependencies).
+> 💡 The built-in dataset loaders rely on Hugging Face `datasets` (included in core dependencies).
 
 To use a copy saved via `datasets.save_to_disk`, pass a local path:
 
@@ -259,7 +263,7 @@ dataset = dataset_registry.get_dataset(
 )
 ```
 
-### Model Runners
+### 🏃 Model Runners
 
 Model registry lookups now return a **model runner**—an object that exposes a uniform
 `generate()` interface and keeps the underlying Hugging Face model/tokenizer handy.
@@ -294,7 +298,7 @@ print(chat_response.text)
 Runners keep the raw model/tokenizer accessible via `runner.model` / `runner.tokenizer`
 so existing diagnostic code can still reach low-level APIs when necessary.
 
-### 2. Load Configuration
+### 2. Load Configuration ⚙️
 
 ```python
 from deepscan import ConfigLoader
@@ -310,7 +314,7 @@ config = ConfigLoader.from_dict({
 })
 ```
 
-### 3. Create and Use Evaluators
+### 3. Create and Use Evaluators 🔍
 
 Evaluators are typically used through `run_from_config`, but can also be used programmatically:
 
@@ -340,7 +344,7 @@ dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path
 # results = evaluator.evaluate(model, dataset, ...)
 ```
 
-### 4. Progress Callbacks
+### 4. Progress Callbacks 📈
 
 Monitor evaluation progress with callbacks:
 
@@ -364,7 +368,7 @@ results = run_from_config(
 )
 ```
 
-### 5. Create Custom Evaluators
+### 5. Create Custom Evaluators 🛠️
 
 ```python
 from deepscan.evaluators.base import BaseEvaluator
@@ -385,7 +389,7 @@ registry.register_evaluator("custom_eval")(CustomEvaluator)
 evaluator = registry.create_evaluator("custom_eval", param1=value1)
 ```
 
-### 6. Summarize Results
+### 6. Summarize Results 📊
 
 ```python
 from deepscan.summarizers.base import BaseSummarizer
@@ -407,21 +411,21 @@ report = summarizer.format_report(summary, format="markdown")
 print(report)
 ```
 
-## Architecture
+## 🏗️ Architecture
 
 ### Core Components
 
-1. **Registry System** (`deepscan/registry/`)
+1. **📦 Registry System** (`deepscan/registry/`)
    - `BaseRegistry`: Generic registry pattern
    - `ModelRegistry`: Model registration and retrieval
    - `DatasetRegistry`: Dataset registration and retrieval
 
-2. **Configuration** (`deepscan/config/`)
+2. **⚙️ Configuration** (`deepscan/config/`)
    - `ConfigLoader`: Load and manage YAML/JSON configurations
    - Supports dot notation for nested access
    - Merge multiple configurations
 
-3. **Evaluators** (`deepscan/evaluators/`)
+3. **🔍 Evaluators** (`deepscan/evaluators/`)
    - `BaseEvaluator`: Abstract base class for all evaluators
    - `TellMeEvaluator`: Disentanglement metrics on BeaverTails
    - `XBoundaryEvaluator`: Safety boundary analysis
@@ -429,14 +433,14 @@ print(report)
    - `SpinEvaluator`: Self-play fine-tuning evaluation
    - `EvaluatorRegistry`: Registry for evaluator classes
 
-4. **Summarizers** (`deepscan/summarizers/`)
+4. **📝 Summarizers** (`deepscan/summarizers/`)
    - `BaseSummarizer`: Abstract base class for all summarizers
    - `SummarizerRegistry`: Registry for summarizer classes
    - Multiple output formats (dict, JSON, Markdown, text)
 
-## Extending the Framework
+## 🔧 Extending the Framework
 
-### Adding a New Evaluator
+### ➕ Adding a New Evaluator
 
 1. Inherit from `BaseEvaluator`
 2. Implement the `evaluate` method
@@ -458,7 +462,7 @@ registry = get_evaluator_registry()
 registry.register_evaluator("my_evaluator")(MyEvaluator)
 ```
 
-### Adding a New Summarizer
+### ➕ Adding a New Summarizer
 
 1. Inherit from `BaseSummarizer`
 2. Implement the `summarize` method
@@ -478,10 +482,10 @@ registry = get_summarizer_registry()
 registry.register_summarizer("my_summarizer")(MySummarizer)
 ```
 
-## Example Configuration File
+## 📋 Example Configuration File
 
 ```yaml
-# Minimal TELLME-style config (see `examples/config.tellme.yaml` for the full version)
+# 📝 Minimal TELLME-style config (see `examples/config.tellme.yaml` for the full version)
 model:
   generation: qwen3
   model_name: Qwen3-8B
@@ -503,46 +507,46 @@ evaluator:
   token_position: -1
 ```
 
-## Examples
+## 📚 Examples
 
 See the `examples/` directory for complete usage examples:
 
-**Evaluators:**
+**🔍 Evaluators:**
 - `config.tellme.yaml`: TELLME disentanglement metrics
 - `config.xboundary.yaml`: X-Boundary safety analysis
 - `config.mi_peaks.yaml`: MI-Peaks introspection
 - `config.spin.yaml`: SPIN evaluation
 
-**Python Scripts:**
+**🐍 Python Scripts:**
 - `tellme_evaluation.py`: Run TELLME evaluation programmatically
 - `xboundary_evaluation.py`: Run X-Boundary evaluation programmatically
 - `ministral3_multimodal_demo.py`: Multimodal model example
 - `gemma3_multimodal_demo.py`: Gemma3 multimodal example
 
-**Combined Configs:**
+**🔗 Combined Configs:**
 - `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: Multiple evaluators on same model
 
-## Development
+## 💻 Development
 
 ```bash
-# Install in development mode
+# 📦 Install in development mode
 pip install -e ".[dev]"
 
-# Run tests
+# ✅ Run tests
 pytest
 
-# Format code
+# 🎨 Format code
 black deepscan/
 
-# Type checking
+# 🔍 Type checking
 mypy deepscan/
 ```
 
-## License
+## 📄 License
 
 MIT License
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
 
