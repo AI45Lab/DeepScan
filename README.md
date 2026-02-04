@@ -1,31 +1,29 @@
 <div align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="logo-light.png">
-  <img alt="Fallback image description" src="logo-dark.png">
-</picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
+    <img alt="DeepScan Logo" src="logo-dark.svg" width="300">
+  </picture>
 </div>
-
-<div style="height: 20px;"></div>
+<div style="height: 50px;"></div>
 
 # DeepScan: Diagnostic Framework for LLMs 🔬
 
-A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). This framework provides a modular architecture for evaluating models through neuron attribution and representation engineering techniques.
+A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). Designed around the "Register → Configure → Execute → Summarize" workflow, this framework provides unified Runner, Evaluator, and Summarizer abstractions for quickly building or customizing diagnostic pipelines.
 
 ## ✨ Features
 
-- **📦 Model Registry**: Register and manage model instances and factories
-- **🚀 Model Runners**: Consistent `generate`/`chat` abstraction across model families
-  - Supported models: Qwen (qwen/qwen2/qwen2.5/qwen3), Llama, Mistral, Gemma, GLM, InternLM, InternVL
-- **📊 Dataset Registry**: Register and manage dataset instances and factories
+- **📦 Model Registry**: Register and manage model instances, supporting Qwen, Llama, Mistral, Gemma, GLM, InternLM, InternVL, and more
+- **🚀 Unified Model Interface**: Consistent `generate`/`chat` abstraction across model families
+- **📊 Dataset Registry**: Register and manage dataset instances, supporting multiple data formats
 - **⚙️ Configuration Management**: Load and manage configurations from YAML/JSON files
-- **🔍 Extensible Evaluators**: Built-in evaluators for various diagnostic tasks:
-  - **TELLME**: Disentanglement metrics on filtered BeaverTails
-  - **X-Boundary**: Safety boundary analysis with visualization
-  - **MI-Peaks**: Model introspection and peak analysis
-  - **SPIN**: Self-play fine-tuning evaluation
+- **🔍 Extensible Evaluators**: Built-in diagnostic evaluators:
+  - **TELLME**: Quantify the degree of disentanglement between different concepts in representations using metrics
+  - **X-Boundary**: Diagnose hidden representation spaces: geometric relationships between safe/harmful/boundary regions
+  - **MI-Peaks**: Track information evolution in reasoning representations during generation based on mutual information
+  - **SPIN**: Analyze potential conflicts between safety objectives such as fairness and privacy
 - **📝 Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
-- **📈 Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluations
+- **📈 Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluators
 - **🔌 Plugin Architecture**: Easy to extend with custom evaluators and summarizers
 - **💻 CLI Support**: Run evaluations directly from command line without writing code
 
@@ -66,6 +64,8 @@ pip install -e ".[all]"           # All evaluator dependencies (tellme + xbounda
 pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
+## 🚀 Quick Start
+
 ### 🎯 End-to-end from a config (any evaluator)
 
 **Python API:**
@@ -102,8 +102,6 @@ python -m deepscan.run --config examples/config.tellme.yaml --dry-run
 python -m deepscan.run --config examples/config.tellme.yaml --output results.json
 ```
 
-## 🚀 Quick Start
-
 ### 1. Register Models and Datasets (global registries) 📝
 
 #### 🔧 Registering Individual Models
@@ -129,7 +127,7 @@ def create_sst2():
 
 #### Registering Model Families (e.g., Qwen) 🏗️
 
-For model families with multiple generations, organize by **generation** rather than size, since different generations may have different configurations even at the same size.
+
 
 **Option 1: Register by generation (Recommended)** ⭐
 
@@ -517,12 +515,6 @@ See the `examples/` directory for complete usage examples:
 - `config.mi_peaks.yaml`: MI-Peaks introspection
 - `config.spin.yaml`: SPIN evaluation
 
-**🐍 Python Scripts:**
-- `tellme_evaluation.py`: Run TELLME evaluation programmatically
-- `xboundary_evaluation.py`: Run X-Boundary evaluation programmatically
-- `ministral3_multimodal_demo.py`: Multimodal model example
-- `gemma3_multimodal_demo.py`: Gemma3 multimodal example
-
 **🔗 Combined Configs:**
 - `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: Multiple evaluators on same model
 
@@ -535,11 +527,6 @@ pip install -e ".[dev]"
 # ✅ Run tests
 pytest
 
-# 🎨 Format code
-black deepscan/
-
-# 🔍 Type checking
-mypy deepscan/
 ```
 
 ## 📄 License

@@ -1,44 +1,32 @@
 <div align="center">
-  <img src="logo.svg" alt="DeepScan Framework" width="1000px"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
+    <img alt="DeepScan Logo" src="logo-dark.svg" width="300">
+  </picture>
 </div>
-<div style="height: 20px;"></div>
+<div style="height: 50px;"></div>
 
 
 # DeepScan: 面向大语言模型的诊断框架 🔬
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
-## 🎨 设计与核心组件
+## ✨ 特性
 
-- **📦 核心解耦与注册表**
-    - 统一注册：ModelRegistry、DatasetRegistry、EvaluatorRegistry、SummarizerRegistry 通过名称查找和参数化创建，避免硬编码依赖。
-    - 基础抽象：BaseRegistry 负责注册/获取，BaseEvaluator 负责评估生命周期，BaseSummarizer 负责结果协议与格式化。
-    - Runner 层：BaseRunner 提供统一 generate()/chat()，屏蔽底层 HF/自研推理实现，同时保留 model/tokenizer 直达接口。
-- **🔌 模型与数据源的可插拔工厂**
-    - 模型：支持按"世代"或具体型号注册（如 Qwen3 各尺寸）；工厂函数接收 model_name、device、path 等参数，返回 Runner。
-    - 数据集：支持 HF datasets、CSV、本地 save_to_disk；加载函数按需接受 split/path/max_rows 等参数。
-    - 新增只需"写工厂 + 注册"，无需修改管线或入口脚本。
-- **⚙️ 配置驱动的端到端执行**
-    - ConfigLoader 支持 YAML/JSON/字典，具备多配置合并与点号访问。
-    - run_from_config / CLI：解析配置 → 通过注册表实例化组件 → 推理与评估 → 输出结构化结果或单文件汇总。
-    - 支持 --output-dir（分布式结果）与 --output（单 JSON 汇总）。
-- **🔍 评估器的模板方法模式**
-    - BaseEvaluator 规定评估流程：准备 → 数据迭代 → 指标/归因计算 → 聚合结果。
-    - 两大分支：NeuronAttributionEvaluator（层/神经元选择、梯度/自定义方法），RepresentationEngineeringEvaluator（表示分析与干预）。
-    - 通过 EvaluatorRegistry 注册自定义 evaluator；内置 TELLME 评估器示例化完整解耦度计算链路。
-- **📝 Summarizer 的结果协议**
-    - BaseSummarizer.summarize 返回轻量 dict，format_report 输出 JSON/Markdown/纯文本。
-    - SummarizerRegistry 允许为特定 benchmark/任务定制关键字段、指标重命名或分层汇总。
-- **🔧 扩展路径（最小改动）**
-    - 统一 Runner 接口减少条件分支，便于替换推理后端或支持多模态输入。
-    - 注册表集中命名空间与生命周期管理，降低模块耦合；默认资源（Qwen、BeaverTails）可在导入时自动挂载。
-    - 配置与实现解耦，便于 A/B 测试、批量实验、环境切换。
-    - 结果协议与可视化分离，评估算法升级不影响上层呈现。
-- **🔄 典型开发工作流**
-    - 导入框架，获取全局注册表（可自动加载默认模型/数据集）。
-    - 用配置声明模型/数据/评估器/汇总器及参数。
-    - run_from_config 或 CLI 直接执行，自动完成加载、推理、评估、汇总。
-    - 用 Summarizer 生成 JSON/Markdown 报告，或自定义后处理与落盘结构。
+- **📦 模型注册表**：注册和管理模型实例，支持 Qwen、Llama、Mistral、Gemma、GLM、InternLM、InternVL 等
+- **🚀 统一模型接口**：一致的 `generate`/`chat` 抽象，跨模型族统一使用
+- **📊 数据集注册表**：注册和管理数据集实例，支持多种数据格式
+- **⚙️ 配置管理**：从 YAML/JSON 文件加载和管理配置
+- **🔍 可扩展Evaluator**：内置多种诊断Evaluator：
+  - **TELLME**：用指标量化表征中不同概念的解耦程度
+  - **X-Boundary**：诊断隐表示空间：安全/有害/边界几何关系
+  - **MI-Peaks**：基于互信息追踪生成中推理表征信息演化
+  - **SPIN**：分析公平、隐私等安全目标间的潜在冲突
+- **📝 可定制Summarizer**：聚合和格式化不同基准的评估结果
+- **📈 进度跟踪**：内置进度回调，监控长时间运行的Evaluator
+- **🔌 插件架构**：易于扩展自定义Evaluator和Summarizer
+- **💻 CLI 支持**：无需编写代码即可从命令行运行评估
 
 ## 📥 安装
 
@@ -52,215 +40,496 @@ pip install -e .
 pip install -e ".[default]"
 ```
 
+**开发模式安装**：
+```bash
+pip install -e ".[dev]"
+```
+
 **其他可选依赖**：
 
 ```bash
-# 🤖 [可选] 模型运行器依赖
+# 🤖 模型运行器依赖
 pip install -e ".[qwen]"          # Qwen 模型
-pip install -e ".[glm]"            # GLM 模型
-pip install -e ".[ministral3]"     # Ministral 3 (多模态) 模型
+pip install -e ".[glm]"           # GLM 模型
+pip install -e ".[ministral3]"    # Ministral 3 (多模态) 模型
 
-# 🔬 [可选] 评估器依赖
-pip install -e ".[tellme]"         # TELLME 评估器
-pip install -e ".[xboundary]"      # X-Boundary 评估器
-pip install -e ".[mi_peaks]"       # MI-Peaks 评估器
+# 🔬 评估器依赖
+pip install -e ".[tellme]"        # TELLME 评估器 + 指标栈
+pip install -e ".[xboundary]"     # X-Boundary 评估器 + 可视化栈
+pip install -e ".[mi_peaks]"     # MI-Peaks 评估器
 
-# 🛠️ [可选] 开发依赖
-pip install -e ".[dev]"            # 测试和代码质量工具
+# 🎁 便捷扩展
+pip install -e ".[all]"           # 所有评估器依赖 (tellme + xboundary + mi_peaks)
 
-# 🎁 [可选] 所有评估器依赖
-pip install -e ".[all]"            # 包含所有评估器依赖
-
-# 🌐 [可选] API 服务器（内部使用，开源版本不包含）
-pip install -e ".[api]"            # FastAPI + Uvicorn
+# 🌐 API 服务器（内部使用 - 开源核心版本不包含）
+pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
 ## 🚀 快速上手
 
-### 💻 CLI
+### 🎯 从配置文件端到端运行（任何评估器）
 
-```bash
-# ✅ 运行 TELLME 诊断
-python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
-
-# ✅ 运行 X-Boundary 诊断
-python -m deepscan.run --config examples/config.xboundary.yaml --output-dir runs
-
-# 🔍 Dry Run: 仅验证配置与注册项（不加载模型/数据）
-python -m deepscan.run --config examples/config.tellme.yaml --dry-run
-```
-
-### 🐍 Python
-
+**Python API：**
 ```python
 from deepscan import run_from_config
 
-# ✅ 运行 TELLME 诊断
+# YAML/JSON 或包含 model/dataset/evaluator 部分的字典
 results = run_from_config("examples/config.tellme.yaml")
 
-# ✅ 运行 X-Boundary 诊断
-results = run_from_config("examples/config.xboundary.yaml")
+# 带进度回调
+def on_progress(completed, total, desc):
+    print(f"{completed}/{total}: {desc}")
 
-# 🔍 Dry Run: 仅验证配置与注册项（不加载模型/数据）
-results = run_from_config("examples/config.tellme.yaml", dry_run=True)
-results = run_from_config("examples/config.xboundary.yaml", dry_run=True)
+results = run_from_config(
+    "examples/config.tellme.yaml",
+    on_progress_update=on_progress,
+    output_dir="results",
+    run_id="my_experiment",
+)
 ```
 
+**CLI**（无需编写 Python 代码）：
+```bash
+# ✅ 基本用法
+python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
+
+# 🏷️ 使用自定义运行 ID
+python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
+
+# 🔍 干运行（验证配置而不加载模型/数据集）
+python -m deepscan.run --config examples/config.tellme.yaml --dry-run
+
+# 💾 可选：同时将单个合并的 JSON 写入指定位置
+python -m deepscan.run --config examples/config.tellme.yaml --output results.json
+```
+
+### 1. 注册模型和数据集（全局注册表）📝
+
+#### 🔧 注册单个模型
+
+```python
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
+
+# 重要：使用全局注册表，以便 `run_from_config()` 可以找到您的条目
+model_registry = get_model_registry()
+dataset_registry = get_dataset_registry()
+
+@model_registry.register_model("gpt2")
+def create_gpt2():
+    from transformers import GPT2LMHeadModel
+    return GPT2LMHeadModel.from_pretrained("gpt2")
+
+@dataset_registry.register_dataset("glue_sst2")
+def create_sst2():
+    from datasets import load_dataset
+    return load_dataset("glue", "sst2", split="test")
+```
+
+#### 注册模型系列（例如 Qwen）🏗️
 
 
-## 📋 配置示例（YAML）
+**选项 1：按世代注册（推荐）** ⭐
+
+```python
+from deepscan.registry.model_registry import get_model_registry
+
+registry = get_model_registry()
+
+@registry.register_model(
+    "qwen3",
+    model_family="qwen",
+    model_generation="qwen3",
+)
+def create_qwen3(model_name: str = "Qwen3-8B", device: str = "cuda", **kwargs):
+    """创建指定名称的 Qwen3 模型。"""
+    from transformers import AutoModelForCausalLM
+    
+    model_paths = {
+        "Qwen3-0.6B": "Qwen/Qwen3-0.6B",
+        "Qwen3-1.5B": "Qwen/Qwen3-1.5B",
+        "Qwen3-2B": "Qwen/Qwen3-2B",
+        "Qwen3-8B": "Qwen/Qwen3-8B",
+        "Qwen3-14B": "Qwen/Qwen3-14B",
+        "Qwen3-32B": "Qwen/Qwen3-32B",
+    }
+    
+    if model_name not in model_paths:
+        raise ValueError(f"不支持的模型: {model_name}")
+    
+    return AutoModelForCausalLM.from_pretrained(
+        model_paths[model_name],
+        device_map=device,
+        **kwargs
+    )
+
+# 用法：
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+```
+
+**选项 2：使用世代前缀注册单个模型** 🔑
+
+```python
+@registry.register_model(
+    "qwen3/Qwen3-8B",
+    model_family="qwen",
+    model_generation="qwen3",
+    model_name="Qwen3-8B",
+)
+def create_qwen3_8b(device: str = "cuda", **kwargs):
+    from transformers import AutoModelForCausalLM
+    return AutoModelForCausalLM.from_pretrained(
+        "Qwen/Qwen3-8B",
+        device_map=device,
+        **kwargs
+    )
+
+# 用法：
+runner = registry.get_model("qwen3/Qwen3-8B", device="cuda")
+```
+
+**💡 为什么按世代组织？** 不同的 Qwen 世代（qwen、qwen2、qwen3）即使在相同的参数数量下也可能具有不同的架构、分词器和配置。
+
+**选项 3：使用预注册模型（推荐）** ⭐
+
+Qwen 模型在导入框架时会自动注册：
+
+```python
+from deepscan.registry.model_registry import get_model_registry
+
+# 模型已注册 - 直接使用！
+registry = get_model_registry()
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+```
+
+或者简单地导入框架，模型即可使用：
+
+```python
+import deepscan  # Qwen 模型自动注册
+from deepscan.registry.model_registry import get_model_registry
+
+registry = get_model_registry()
+runner = registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+```
+
+查看 `deepscan/models/` 了解模型实现，查看 `examples/` 了解端到端评估流水线。
+
+#### 预注册资源（模型 + 数据集）🎁
+
+框架附带开箱即用的注册项，在您 `import deepscan` 时会自动加载：
+
+**🤖 模型**（查看 `deepscan/models/` 了解实现）：
+- **Qwen**: qwen / qwen2 / qwen2.5 / qwen3 变体
+- **Llama**: Llama 2/3 变体
+- **Mistral**: Mistral 和 Ministral3（多模态）
+- **Gemma**: Gemma 和 Gemma3（多模态）
+- **GLM**: GLM-4 系列
+- **InternLM**: InternLM2/3 变体
+- **InternVL**: InternVL3.5（多模态）
+
+**📊 数据集**：
+- BeaverTails（HF 数据集）
+- `tellme/beaver_tails_filtered`（CSV 加载器）
+- `xboundary/diagnostic`（X-Boundary 诊断数据集）
+
+```python
+import deepscan
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
+
+model_registry = get_model_registry()
+dataset_registry = get_dataset_registry()
+
+# 使用任何已注册的模型
+model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+# 或 Llama、Mistral 等
+
+# 使用已注册的数据集
+dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path="/path/to/test.csv")
+```
+
+> 💡 内置数据集加载器依赖于 Hugging Face `datasets`（包含在核心依赖中）。
+
+要使用通过 `datasets.save_to_disk` 保存的副本，传递本地路径：
+
+```python
+dataset = dataset_registry.get_dataset(
+    "beaver_tails",
+    split="330k_train",
+    path="/path/to/BeaverTails",
+)
+```
+
+### 🏃 模型运行器
+
+模型注册表查找现在返回一个**模型运行器**——一个暴露统一 `generate()` 接口并保留底层 Hugging Face 模型/分词器的对象。
+
+```python
+from deepscan.models.base_runner import GenerationRequest, PromptMessage, PromptContent
+from deepscan.registry.model_registry import get_model_registry
+
+runner = get_model_registry().get_model(
+    "qwen3",
+    model_name="Qwen3-8B",
+    device="cuda",
+)
+
+# 快速文本生成
+response = runner.generate("用两句话解释什么是注册表模式。")
+print(response.text)
+
+# 带结构化消息的聊天式提示
+chat_request = GenerationRequest.from_messages(
+    [
+        PromptMessage(role="system", content=[PromptContent(text="你是一位数学导师。")]),
+        PromptMessage(role="user", content=[PromptContent(text="帮我因式分解 x^2 + 5x + 6。")]),
+    ],
+    temperature=0.1,
+    max_new_tokens=128,
+)
+chat_response = runner.generate(chat_request)
+print(chat_response.text)
+```
+
+运行器通过 `runner.model` / `runner.tokenizer` 保留原始模型/分词器的访问，以便现有诊断代码在需要时仍可访问底层 API。
+
+### 2. 加载配置 ⚙️
+
+```python
+from deepscan import ConfigLoader
+
+# 从文件加载
+config = ConfigLoader.from_file("config.yaml")
+
+# 或从字典创建
+config = ConfigLoader.from_dict({
+    "model": {"generation": "qwen3", "model_name": "Qwen3-8B", "device": "cuda"},
+    "dataset": {"name": "beaver_tails", "split": "330k_train"},
+    "evaluator": {"type": "tellme", "batch_size": 4},
+})
+```
+
+### 3. 创建和使用评估器 🔍
+
+评估器通常通过 `run_from_config` 使用，但也可以以编程方式使用：
+
+```python
+from deepscan.evaluators.registry import get_evaluator_registry
+from deepscan.registry.model_registry import get_model_registry
+from deepscan.registry.dataset_registry import get_dataset_registry
+
+# 获取注册表
+evaluator_registry = get_evaluator_registry()
+model_registry = get_model_registry()
+dataset_registry = get_dataset_registry()
+
+# 从注册表创建评估器
+evaluator = evaluator_registry.create_evaluator(
+    "tellme",
+    batch_size=4,
+    layer_ratio=0.6666,
+    token_position=-1,
+)
+
+# 获取模型和数据集
+model = model_registry.get_model("qwen3", model_name="Qwen3-8B", device="cuda")
+dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path="/path/to/test.csv")
+
+# 运行评估（通常通过 run_from_config 完成）
+# results = evaluator.evaluate(model, dataset, ...)
+```
+
+### 4. 进度回调 📈
+
+使用回调监控评估进度：
+
+```python
+def on_start(total: Optional[int], description: str):
+    print(f"开始: {description} ({total} 项)")
+
+def on_update(completed: int, total: Optional[int], description: str):
+    if total:
+        pct = (completed / total) * 100
+        print(f"进度: {completed}/{total} ({pct:.1f}%) - {description}")
+
+def on_done(completed: int, total: Optional[int], description: str):
+    print(f"完成: {description}")
+
+results = run_from_config(
+    "config.yaml",
+    on_progress_start=on_start,
+    on_progress_update=on_update,
+    on_progress_done=on_done,
+)
+```
+
+### 5. 创建自定义评估器 🛠️
+
+```python
+from deepscan.evaluators.base import BaseEvaluator
+from deepscan.evaluators.registry import get_evaluator_registry
+
+class CustomEvaluator(BaseEvaluator):
+    def evaluate(self, model, dataset, **kwargs):
+        # 您的自定义评估逻辑
+        results = {}
+        # ... 实现 ...
+        return results
+
+# 注册评估器
+registry = get_evaluator_registry()
+registry.register_evaluator("custom_eval")(CustomEvaluator)
+
+# 在配置中或以编程方式使用
+evaluator = registry.create_evaluator("custom_eval", param1=value1)
+```
+
+### 6. 汇总结果 📊
+
+```python
+from deepscan.summarizers.base import BaseSummarizer
+
+class SimpleSummarizer(BaseSummarizer):
+    def summarize(self, results, benchmark=None, **kwargs):
+        # 最小示例：保留一小部分键
+        return {
+            "benchmark": benchmark,
+            "keys": sorted(results.keys()),
+        }
+
+summarizer = SimpleSummarizer(name="simple")
+
+summary = summarizer.summarize(results, benchmark="beaver_tails")
+
+# 格式化为 markdown
+report = summarizer.format_report(summary, format="markdown")
+print(report)
+```
+
+## 🏗️ 架构
+
+### 核心组件
+
+1. **📦 注册表系统** (`deepscan/registry/`)
+   - `BaseRegistry`: 通用注册表模式
+   - `ModelRegistry`: 模型注册和检索
+   - `DatasetRegistry`: 数据集注册和检索
+
+2. **⚙️ 配置** (`deepscan/config/`)
+   - `ConfigLoader`: 加载和管理 YAML/JSON 配置
+   - 支持点号访问嵌套配置
+   - 合并多个配置
+
+3. **🔍 评估器** (`deepscan/evaluators/`)
+   - `BaseEvaluator`: 所有评估器的抽象基类
+   - `TellMeEvaluator`: BeaverTails 上的解耦度指标
+   - `XBoundaryEvaluator`: 安全边界分析
+   - `MiPeaksEvaluator`: 模型内省和峰值分析
+   - `SpinEvaluator`: 自对弈微调评估
+   - `EvaluatorRegistry`: 评估器类的注册表
+
+4. **📝 汇总器** (`deepscan/summarizers/`)
+   - `BaseSummarizer`: 所有汇总器的抽象基类
+   - `SummarizerRegistry`: 汇总器类的注册表
+   - 多种输出格式（dict、JSON、Markdown、文本）
+
+## 🔧 扩展框架
+
+### ➕ 添加新评估器
+
+1. 继承 `BaseEvaluator`
+2. 实现 `evaluate` 方法
+3. 使用评估器注册表注册
+
+```python
+from deepscan.evaluators.base import BaseEvaluator
+from deepscan.evaluators.registry import get_evaluator_registry
+
+class MyEvaluator(BaseEvaluator):
+    def evaluate(self, model, dataset, **kwargs):
+        # 您的评估逻辑
+        results = {}
+        # ... 实现 ...
+        return results
+
+# 注册
+registry = get_evaluator_registry()
+registry.register_evaluator("my_evaluator")(MyEvaluator)
+```
+
+### ➕ 添加新汇总器
+
+1. 继承 `BaseSummarizer`
+2. 实现 `summarize` 方法
+3. 使用汇总器注册表注册
+
+```python
+from deepscan.summarizers.base import BaseSummarizer
+from deepscan.summarizers.registry import get_summarizer_registry
+
+class MySummarizer(BaseSummarizer):
+    def summarize(self, results, benchmark=None, **kwargs):
+        # 您的汇总逻辑
+        return {"summary": "..."}
+
+# 注册
+registry = get_summarizer_registry()
+registry.register_summarizer("my_summarizer")(MySummarizer)
+```
+
+## 📋 配置示例文件
 
 ```yaml
+# 📝 最小 TELLME 风格配置（查看 `examples/config.tellme.yaml` 了解完整版本）
 model:
-  generation: qwen3        # 注册表键
+  generation: qwen3
   model_name: Qwen3-8B
   device: cuda
+  dtype: float16
+  # 可选：指向本地检查点目录以避免下载
+  # path: /path/to/models--Qwen--Qwen3-8B
 
 dataset:
   name: tellme/beaver_tails_filtered
   test_path: /path/to/test.csv
+  # train_path: /path/to/train.csv
+  # max_rows: 400
 
 evaluator:
   type: tellme
   batch_size: 4
   layer_ratio: 0.6666
   token_position: -1
-
-# 可选：对运行结果进行汇总
-summarizer:
-  type: simple
 ```
 
-## 🔄 典型工作流
+## 📚 示例
 
-1. 📥 导入框架，自动加载内置注册项（Qwen 模型族、BeaverTails 数据等）。
-2. ⚙️ 在配置中声明模型/数据集/评估器/汇总器及其参数。
-3. 🚀 通过 `run_from_config` 或 CLI 运行：解析配置 → 通过注册表实例化组件 → 推理与评估 → 结果落盘。
-4. 📊 在 `results/<run_id>/` 下获取每个模型的 `results.json`，若指定汇总器则额外生成 `summary.json` / `summary.md`。
+查看 `examples/` 目录了解完整使用示例：
 
-## 🎯 进阶用法
+**🔍 评估器：**
+- `config.tellme.yaml`: TELLME 解耦度指标
+- `config.xboundary.yaml`: X-Boundary 安全分析
+- `config.mi_peaks.yaml`: MI-Peaks 内省
+- `config.spin.yaml`: SPIN 评估
 
-- **🔄 多模型批量任务**：`model` 字段可传列表，同一数据集与评估器下批量对比多个模型，结果按模型独立目录写入。
-- **📈 进度回调**：`run_from_config` 接受 `on_progress_start`、`on_progress_update`、`on_progress_done` 回调，按状态上报进度百分比。也可使用 `progress_sink` 参数传入自定义进度跟踪对象。
-- **📁 输出控制**：`--output-dir` 控制基目录；`--run-id` 自定义运行标识；`--output` 可将汇总直接写为单一 JSON。
+**🔗 组合配置：**
+- `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: 同一模型上的多个评估器
 
-## 🔍 已支持的诊断方法
+## 💻 开发
 
-- **🔬 TELLME**
-  - 📊 指标：R_diff、R_same、R_gap（coding rate），erank（有效秩），cos_sim/pcc/L1/L2/hausdorff 等距离度量。
-  - 📁 数据：`tellme/beaver_tails_filtered`（CSV/HF 均可，需标签列）。
-  - ⚙️ 关键参数：`batch_size`、`layer` 或 `layer_ratio`、`token_position`、`max_rows`、`prompt_suffix_{train,test}`。
-  - 📦 依赖：安装 `.[tellme]`（torch、transformers、pandas、opt_einsum、tqdm 等）。
-  - 💡 配置示例：
-    ```yaml
-    evaluator:
-      type: tellme
-      batch_size: 4
-      layer_ratio: 0.6666   # 或显式 layer: -1
-      token_position: -1
-    ```
+```bash
+# 📦 以开发模式安装
+pip install -e ".[dev]"
 
-- **🛡️ X-Boundary**
-  - 📊 指标：基于类中心的分离度 `separation_score`、边界比 `boundary_ratio`；可选 t-SNE 可视化。
-  - 📁 数据：带安全/不安全标签的对话消息（消息列表 + label），会按原论文流程做 chat template + 截断/填充。
-  - ⚙️ 关键参数：`batch_size`、`max_length`、`target_layers`/`target_layers_csv`（默认取 1/3、2/3 深度）、`save_metrics_json`、`save_tsne`、t-SNE 超参（perplexity/random_state/dpi）。
-  - 📦 依赖：安装 `.[xboundary]`（torch、transformers、numpy、sklearn、matplotlib、seaborn 等）。
-  - 💡 配置示例：
-    ```yaml
-    evaluator:
-      type: xboundary
-      batch_size: 8
-      max_length: 1024
-      target_layers: [8, 24]   # 可省略，默认按深度分位
-      save_tsne: true
-    ```
+# ✅ 运行测试
+pytest
 
-- **🎮 SPIN**
-  - 📊 指标：自对弈微调评估指标。
-  - 📁 数据：需要特定的训练/测试数据集。
-  - ⚙️ 关键参数：`batch_size`、`max_length` 等。
-  - 📦 依赖：安装 `.[tellme]` 或 `.[all]`。
-  - 💡 配置示例：
-    ```yaml
-    evaluator:
-      type: spin
-      batch_size: 4
-      max_length: 512
-    ```
+```
 
-- **📈 MI-Peaks**
-  - 📊 指标：模型内省与峰值分析。
-  - 📁 数据：支持多种数据集格式。
-  - ⚙️ 关键参数：`batch_size`、`target_layers` 等。
-  - 📦 依赖：安装 `.[mi_peaks]` 或 `.[all]`。
-  - 💡 配置示例：
-    ```yaml
-    evaluator:
-      type: mi_peaks
-      batch_size: 4
-      target_layers: [8, 16, 24]
-    ```
-## 🔧 扩展指引
+## 📄 许可证
 
-- **➕ 新增模型** 🏗️
-  ```python
-  from deepscan.registry.model_registry import get_model_registry
-  registry = get_model_registry()
+MIT License
 
-  @registry.register_model("my_llm", model_family="custom")
-  def create_my_llm(device="cuda", **kwargs):
-      ...  # 返回 BaseRunner 实例
-  ```
-- **➕ 新增数据集** 📊
-  ```python
-  from deepscan.registry.dataset_registry import get_dataset_registry
-  registry = get_dataset_registry()
+## 🤝 贡献
 
-  @registry.register_dataset("my_dataset")
-  def load_my_dataset(path: str, split: str = "train"):
-      ...  # 返回可迭代/索引的数据对象
-  ```
-- **➕ 新增评估器** 🔍
-  ```python
-  from deepscan.evaluators import NeuronAttributionEvaluator
-  from deepscan.evaluators.registry import get_evaluator_registry
-
-  class MyEvaluator(NeuronAttributionEvaluator):
-      def _compute_attributions(self, model, dataset, target_layers, target_neurons=None):
-          ...  # 返回指标/归因结果
-
-  get_evaluator_registry().register_evaluator("my_eval")(MyEvaluator)
-  ```
-- **➕ 新增汇总器** 📝
-  ```python
-  from deepscan.summarizers import BaseSummarizer
-  from deepscan.summarizers.registry import get_summarizer_registry
-
-  class MySummarizer(BaseSummarizer):
-      def summarize(self, results, benchmark=None, **kwargs):
-          return {"keys": sorted(results.keys())}
-
-  get_summarizer_registry().register_summarizer("my_sum")(MySummarizer)
-  ```
-
-## 🎁 内置资源与示例
-
-- **🤖 模型**：自动注册多个模型系列
-  - Qwen 系列：qwen / qwen2 / qwen2.5 / qwen3
-  - Llama 系列
-  - Mistral 系列（包括 Ministral3 多模态）
-  - Gemma 系列（包括 Gemma3 多模态）
-  - GLM 系列
-  - InternLM 系列
-  - InternVL 系列（多模态）
-- **📊 数据集**：BeaverTails（HF）及过滤 CSV 版本，支持 `datasets.load_dataset` 或 `save_to_disk` 本地加载。
-- **🔍 评估器**：
-  - 🔬 TELLME：解耦度指标
-  - 🛡️ X-Boundary：可视化与边界分析
-  - 📈 MI-Peaks：模型内省与峰值分析
-  - 🎮 SPIN：自对弈微调评估
-- **📚 示例**：
-  - `examples/config.tellme.yaml`、`examples/tellme_evaluation.py`：TELLME 评估
-  - `examples/config.xboundary.yaml`、`examples/xboundary_evaluation.py`：X-Boundary 评估
-  - `examples/ministral3_multimodal_demo.py`：多模态模型示例
-  - `examples/gemma3_multimodal_demo.py`：Gemma3 多模态示例
+欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何贡献的指南。
