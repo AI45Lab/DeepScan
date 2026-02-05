@@ -1,31 +1,28 @@
 <div align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
-    <img alt="DeepScan Logo" src="logo-dark.svg" width="300">
+    <img alt="DeepScan Logo" src="logo-dark.svg" width="200">
   </picture>
-</div>
-<div style="height: 50px;"></div>
 
-<div align="center">
+  <br>
   
-  <span style="font-size: 2.5em; font-weight: bold; text-decoration: none; border: none; border-bottom: none;">DeepScan: 面向大语言模型的诊断框架</span>
-  
-  <p style="margin: 0;">
-    <a href="https://github.com/your-org/DeepScan" style="text-decoration: none; border: none;">
-      <img src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub">
-    </a>
-    <a href="https://huggingface.co/your-org/DeepScan" style="text-decoration: none; border: none;">
-      <img src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HuggingFace">
-    </a>
-    <a href="https://arxiv.org/abs/XXXX.XXXXX" style="text-decoration: none; border: none;">
-      <img src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white" alt="arXiv">
-    </a>
-    <a href="https://deepscan.readthedocs.io" style="text-decoration: none; border: none;">
-      <img src="https://img.shields.io/badge/文档-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white" alt="文档">
-    </a>
+  <h1>DeepScan: Diagnostic Framework for LLMs</h1>
+
+  <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
+
+  <p>
+    <a href="https://github.com/your-org/DeepScan"><img alt="GitHub"
+      src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a>
+    <a href="https://huggingface.co/your-org/DeepScan"><img alt="Hugging Face"
+      src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black"></a>
+    <a href="https://arxiv.org/abs/XXXX.XXXXX"><img alt="arXiv"
+      src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white"></a>
+    <a href="https://deepscan.readthedocs.io"><img alt="Documentation"
+      src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white"></a>
   </p>
 </div>
+
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
@@ -550,3 +547,9 @@ MIT License
 ## 🤝 贡献
 
 欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解如何贡献的指南。
+
+## 📧 联系我们
+
+如有问题或建议，请通过以下方式联系我们：
+
+  📧 邮箱：[shaojing@pjlab.org.cn](mailto:shaojing@pjlab.org.cn)
