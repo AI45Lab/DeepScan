@@ -9,19 +9,19 @@
 
 <div align="center">
   
-  <strong style="font-size: 2em;">DeepScan: 面向大语言模型的诊断框架</strong>
+  <span style="font-size: 2.5em; font-weight: bold; text-decoration: none; border: none; border-bottom: none;">DeepScan: 面向大语言模型的诊断框架</span>
   
-  <p>
-    <a href="https://github.com/your-org/DeepScan">
+  <p style="margin: 0;">
+    <a href="https://github.com/your-org/DeepScan" style="text-decoration: none; border: none;">
       <img src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub">
     </a>
-    <a href="https://huggingface.co/your-org/DeepScan">
+    <a href="https://huggingface.co/your-org/DeepScan" style="text-decoration: none; border: none;">
       <img src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HuggingFace">
     </a>
-    <a href="https://arxiv.org/abs/XXXX.XXXXX">
+    <a href="https://arxiv.org/abs/XXXX.XXXXX" style="text-decoration: none; border: none;">
       <img src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white" alt="arXiv">
     </a>
-    <a href="https://deepscan.readthedocs.io">
+    <a href="https://deepscan.readthedocs.io" style="text-decoration: none; border: none;">
       <img src="https://img.shields.io/badge/文档-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white" alt="文档">
     </a>
   </p>
