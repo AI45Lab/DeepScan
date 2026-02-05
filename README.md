@@ -9,7 +9,7 @@
 
 <div align="center">
   
-  <h1>DeepScan: Diagnostic Framework for LLMs</h1>
+  <strong style="font-size: 2em;">DeepScan: Diagnostic Framework for LLMs</strong>
   
   <p>
     <a href="https://github.com/your-org/DeepScan">

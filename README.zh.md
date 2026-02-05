@@ -9,7 +9,7 @@
 
 <div align="center">
   
-  <h1>DeepScan: 面向大语言模型的诊断框架</h1>
+  <strong style="font-size: 2em;">DeepScan: 面向大语言模型的诊断框架</strong>
   
   <p>
     <a href="https://github.com/your-org/DeepScan">
