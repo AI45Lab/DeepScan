@@ -7,7 +7,25 @@
 </div>
 <div style="height: 50px;"></div>
 
-# DeepScan: Diagnostic Framework for LLMs 🔬
+<div align="center">
+  
+  <h1>DeepScan: Diagnostic Framework for LLMs</h1>
+  
+  <p>
+    <a href="https://github.com/your-org/DeepScan">
+      <img src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub">
+    </a>
+    <a href="https://huggingface.co/your-org/DeepScan">
+      <img src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HuggingFace">
+    </a>
+    <a href="https://arxiv.org/abs/XXXX.XXXXX">
+      <img src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white" alt="arXiv">
+    </a>
+    <a href="https://deepscan.readthedocs.io">
+      <img src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white" alt="Documentation">
+    </a>
+  </p>
+</div>
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). Designed around the "Register → Configure → Execute → Summarize" workflow, this framework provides unified Runner, Evaluator, and Summarizer abstractions for quickly building or customizing diagnostic pipelines.
 

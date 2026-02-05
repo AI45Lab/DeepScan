@@ -7,8 +7,25 @@
 </div>
 <div style="height: 50px;"></div>
 
-
-# DeepScan: 面向大语言模型的诊断框架 🔬
+<div align="center">
+  
+  <h1>DeepScan: 面向大语言模型的诊断框架</h1>
+  
+  <p>
+    <a href="https://github.com/your-org/DeepScan">
+      <img src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white" alt="GitHub">
+    </a>
+    <a href="https://huggingface.co/your-org/DeepScan">
+      <img src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black" alt="HuggingFace">
+    </a>
+    <a href="https://arxiv.org/abs/XXXX.XXXXX">
+      <img src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white" alt="arXiv">
+    </a>
+    <a href="https://deepscan.readthedocs.io">
+      <img src="https://img.shields.io/badge/文档-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white" alt="文档">
+    </a>
+  </p>
+</div>
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
