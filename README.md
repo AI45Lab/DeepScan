@@ -12,8 +12,8 @@
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
 
   <p>
-    <a href="https://github.com/your-org/DeepScan"><img alt="GitHub"
-      src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a>
+    <!-- <a href="https://github.com/your-org/DeepScan"><img alt="GitHub" -->
+      <!-- src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a> -->
     <a href="https://huggingface.co/your-org/DeepScan"><img alt="Hugging Face"
       src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black"></a>
     <a href="https://arxiv.org/abs/XXXX.XXXXX"><img alt="arXiv"
