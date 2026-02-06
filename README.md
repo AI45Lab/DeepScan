@@ -25,7 +25,7 @@ A flexible and extensible framework for diagnosing Large Language Models (LLMs) 
 > **🛡️ Safety evaluation:** See our sister project **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** — together with DeepScan it forms a **complete evaluation-diagnosis engineering pipeline**.
 
 ## 🆕 News
-- 🔥🔥🔥 2026-02-06: The latest diagnostic leaderboard from DeepScan and analysis results are out! Covering language and multimodal models including Qwen, Llama, Mistral, Gemma, GLM, InternLM, InternVL — check out the [**leaderboard**](https://ai45.shlab.org.cn/deepscan) and [**analysis**](https://ai45.shlab.org.cn/safety-report#diagnosis-report) to see the results!
+- 🔥🔥🔥 2026-02-06: The latest diagnostic leaderboards from DeepScan and analysis results are out! Covering language and multimodal models including Qwen, Llama, Mistral, Gemma, GLM, InternLM, InternVL — check out the [**leaderboards**](https://ai45.shlab.org.cn/deepscan) and [**analyses**](https://ai45.shlab.org.cn/safety-report#diagnosis-report) to see the results!
 
 ## ✨ Features
 
