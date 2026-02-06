@@ -16,8 +16,8 @@
     <img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat">
   </a>
   <!-- <a href="#">
-    <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000"> -->
-  </a>
+    <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000">
+  </a> -->
   <a href="#">
     <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
   </a>
@@ -32,7 +32,7 @@
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
-> **🛡️ 安全评测：** 配套项目 **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** 专注于安全评测，与 DeepScan 组合可形成 **评测-诊断的工业闭环**。
+> **🛡️ 安全评测：** 配套项目 **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** 专注于安全评测，与 DeepScan 组合可形成 **评测-诊断的工程闭环**。
 
 ## ✨ 特性
 

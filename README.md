@@ -14,8 +14,8 @@
     <img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat">
   </a>
   <!-- <a href="#">
-    <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000"> -->
-  </a>
+    <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000">
+  </a> -->
   <a href="#">
     <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
   </a>
@@ -30,7 +30,7 @@
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). Designed around the "Register → Configure → Execute → Summarize" workflow, this framework provides unified Runner, Evaluator, and Summarizer abstractions for quickly building or customizing diagnostic pipelines.
 
-> **🛡️ Safety evaluation:** See our sister project **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** — together with DeepScan it forms a **complete evaluation-diagnosis industrial pipeline**.
+> **🛡️ Safety evaluation:** See our sister project **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** — together with DeepScan it forms a **complete evaluation-diagnosis engineering pipeline**.
 
 ## ✨ Features
 
