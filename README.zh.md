@@ -24,6 +24,10 @@
 
 > **🛡️ 安全评测：** 配套项目 **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** 专注于安全评测，与 DeepScan 组合可形成 **评测-诊断的工程闭环**。
 
+## 🆕 最新进展
+- 🔥🔥🔥 2026-02-06：最新基于DeepScan的诊断榜单和分析结果出炉！涵盖Qwen、Llama、Mistral、Gemma、GLM、InternLM、InternVL等语言和多模态模型，一键查看 [**榜单详情**](https://ai45.shlab.org.cn/deepscan) 和 [**分析报告**](https://ai45.shlab.org.cn/safety-report#diagnosis-report)！
+
+
 ## ✨ 特性
 
 - **📦 模型注册表**：注册和管理模型实例，支持 Qwen、Llama、Mistral、Gemma、GLM、InternLM、InternVL 等
