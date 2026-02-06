@@ -17,7 +17,7 @@
     <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000"> -->
   </a>
   <a href="#">
-    <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late Feb) &color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
+    <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
   </a>
   <a href="#quick-start">
     <img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white">
