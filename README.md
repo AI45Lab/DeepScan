@@ -12,6 +12,8 @@
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
 
   <p>
+    <a href="https://ai45.shlab.org.cn/safety-entry"><img alt="AI45"
+      src="https://img.shields.io/badge/AI45-Homepage-0066CC?style=flat-square"></a>
     <!-- <a href="https://github.com/your-org/DeepScan"><img alt="GitHub" -->
       <!-- src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a> -->
     <a href="https://huggingface.co/your-org/DeepScan"><img alt="Hugging Face"
@@ -25,6 +27,8 @@
 
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). Designed around the "Register → Configure → Execute → Summarize" workflow, this framework provides unified Runner, Evaluator, and Summarizer abstractions for quickly building or customizing diagnostic pipelines.
+
+> **🛡️ Safety evaluation:** See our sister project **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** — together with DeepScan it forms a **complete evaluation-diagnosis industrial pipeline**.
 
 ## ✨ Features
 
@@ -74,8 +78,6 @@ pip install -e ".[mi_peaks]"      # MI-Peaks evaluator
 # 🎁 Convenience extras
 pip install -e ".[all]"           # All evaluator dependencies (tellme + xboundary + mi_peaks)
 
-# 🌐 API server (for internal use - not included in open-source core)
-pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
 ## 🚀 Quick Start

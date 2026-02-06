@@ -12,6 +12,8 @@
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
 
   <p>
+    <a href="https://ai45.shlab.org.cn/safety-entry"><img alt="AI45"
+      src="https://img.shields.io/badge/AI45-Homepage-0066CC?style=flat-square"></a>
     <!--    <a href="https://github.com/your-org/DeepScan"><img alt="GitHub" -->
       <!-- src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a> -->
     <a href="https://huggingface.co/your-org/DeepScan"><img alt="Hugging Face"
@@ -25,6 +27,8 @@
 
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
+
+> **🛡️ 安全评测：** 配套项目 **[DeepSafe](https://github.com/AI45Lab/DeepSafe)** 专注于安全评测，与 DeepScan 组合可形成 **评测-诊断的工业闭环**。
 
 ## ✨ 特性
 
@@ -74,8 +78,6 @@ pip install -e ".[mi_peaks]"     # MI-Peaks 评估器
 # 🎁 便捷扩展
 pip install -e ".[all]"           # 所有评估器依赖 (tellme + xboundary + mi_peaks)
 
-# 🌐 API 服务器（内部使用 - 开源核心版本不包含）
-pip install -e ".[api]"           # FastAPI + Uvicorn
 ```
 
 ## 🚀 快速上手
