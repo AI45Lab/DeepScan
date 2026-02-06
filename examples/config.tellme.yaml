@@ -1,0 +1,20 @@
+# Minimal TELLME evaluator config (see config.x-boundary.tellme.spin.mi-peaks.*.yaml for multi-evaluator examples)
+model:
+  generation: qwen3
+  model_name: Qwen3-8B
+  device: cuda
+  dtype: float16
+  # Optional: path to local checkpoint to avoid downloads
+  # path: /path/to/models--Qwen--Qwen3-8B
+
+dataset:
+  name: tellme/beaver_tails_filtered
+  test_path: /path/to/test.csv
+  # train_path: /path/to/train.csv
+  # max_rows: 400
+
+evaluator:
+  type: tellme
+  batch_size: 4
+  layer_ratio: 0.6666
+  token_position: -1

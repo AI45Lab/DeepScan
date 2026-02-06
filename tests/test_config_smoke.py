@@ -21,8 +21,9 @@ EXAMPLES_DIR = Path(__file__).resolve().parents[1] / "examples"
 @pytest.mark.parametrize(
     "config_path",
     [
-        EXAMPLES_DIR / "config.xboundary.tellme-qwen2.5-7b-instruct.yaml",
-        EXAMPLES_DIR / "config.mi_peaks.yaml",
+        EXAMPLES_DIR / "config.tellme.yaml",
+        EXAMPLES_DIR / "config.x-boundary.tellme.spin.mi-peaks.qwen2.5-7b-instruct.yaml",
+        EXAMPLES_DIR / "config.xboundary-llama3.3-70b-instruct.yaml",
     ],
 )
 def test_example_configs_dry_run(config_path: Path) -> None:

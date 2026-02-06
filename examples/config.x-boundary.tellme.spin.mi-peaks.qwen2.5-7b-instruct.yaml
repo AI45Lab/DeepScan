@@ -15,8 +15,6 @@ model:
     top_k: 0
     repetition_penalty: 1.0
 
-progress_equalize_evaluators: true
-
 evaluators:
   - type: tellme
     run_name: tellme

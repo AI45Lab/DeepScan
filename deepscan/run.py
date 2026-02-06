@@ -4,13 +4,11 @@ End-to-end runner that executes a diagnosis pipeline from a config file/dict.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union, Callable, List, Tuple
-import math
+from typing import Any, Dict, Optional, Union, List, Tuple
 import argparse
 import json
 import logging
 import gc
-from logging.handlers import RotatingFileHandler
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,9 +17,6 @@ from deepscan.registry.model_registry import get_model_registry
 from deepscan.registry.dataset_registry import get_dataset_registry
 from deepscan.evaluators.registry import get_evaluator_registry
 from deepscan.summarizers.registry import get_summarizer_registry
-from deepscan.utils.progress import infer_total_items
-from deepscan.utils.throughput import TokenThroughputTracker
-from deepscan.utils.model_introspection import get_num_hidden_layers
 
 def _maybe_cuda_cleanup() -> None:
     """
@@ -61,214 +56,12 @@ def _as_config_loader(config: Union[str, Dict[str, Any], ConfigLoader]) -> Confi
     raise TypeError("config must be a path, dict, or ConfigLoader")
 
 
-# Webhook classes removed for open-source version - progress callbacks are preserved
-
-
-class _PipelineProgressAdapter:
-    """
-    Wrap a progress sink so that:
-    - Model loading contributes a fixed portion of progress.
-    - Evaluation samples consume the remaining portion.
-    - Total progress always sums to 100.
-    """
-
-    def __init__(self, sink: Any, *, load_fraction: float = 0.1, total_units: int = 100):
-        self._sink = sink
-        self.total_units = int(total_units)
-        self.load_units = int(round(self.total_units * max(0.0, min(load_fraction, 1.0))))
-        self.pre_load_units = min(self.load_units, max(0, int(round(self.load_units * 0.5))))
-        self.eval_units = max(0, self.total_units - self.load_units)
-        self._eval_total: Optional[float] = None
-        self._preload_emitted = False
-        self._load_emitted = False
-
-    def set_eval_total(self, total: Optional[int]) -> None:
-        if isinstance(total, (int, float)) and total > 0:
-            self._eval_total = float(total)
-
-    def _scaled_completed(self, completed: int) -> Optional[int]:
-        if self._eval_total is None or self._eval_total <= 0 or self.eval_units == 0:
-            return None
-        bounded = min(max(float(completed), 0.0), self._eval_total)
-        if self._load_emitted:
-            base = self.load_units
-        elif self._preload_emitted:
-            base = self.pre_load_units
-        else:
-            base = 0
-        scaled = base + self.eval_units * (bounded / self._eval_total)
-        return int(round(scaled))
-
-    def _call_sink(self, method: str, *args: Any) -> None:
-        if self._sink is None:
-            return
-        fn = getattr(self._sink, method, None)
-        if fn is None:
-            return
-        try:
-            fn(*args)
-        except Exception:
-            logging.debug("Progress sink call failed", exc_info=True)
-
-    def mark_model_preload(self, desc: str) -> None:
-        if self._preload_emitted or self.pre_load_units == 0:
-            return
-        self._preload_emitted = True
-        self._call_sink("on_update", self.pre_load_units, self.total_units, desc)
-
-    def mark_model_loaded(self, desc: str) -> None:
-        if self.load_units == 0:
-            return
-        if not self._preload_emitted and self.pre_load_units > 0:
-            self.mark_model_preload(desc)
-        if self._load_emitted:
-            return
-        self._load_emitted = True
-        self._call_sink("on_update", self.load_units, self.total_units, desc)
-
-    def on_start(self, total: Optional[int], desc: str) -> None:
-        self.set_eval_total(total)
-        self._call_sink("on_start", self.total_units, desc)
-        # If model load already advanced progress, re-emit it so sinks don't
-        # reset to 0 when evaluation starts.
-        if self._load_emitted and self.load_units > 0:
-            self._call_sink("on_update", self.load_units, self.total_units, desc)
-
-    def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
-        self.set_eval_total(total)
-        scaled = self._scaled_completed(completed)
-        if scaled is None:
-            self._call_sink("on_update", completed, total, desc)
-        else:
-            self._call_sink("on_update", scaled, self.total_units, desc)
-
-    def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
-        self._call_sink("on_done", self.total_units, self.total_units, desc)
-
-    def on_result(self, result: Dict[str, Any]) -> None:
-        self._call_sink("on_result", result)
-
-    def on_throughput(self, metrics: Dict[str, Any]) -> None:
-        self._call_sink("on_throughput", metrics)
-
-
-class _PhaseProgressAdapter:
-    """
-    Wrap a sink so repeated evaluator phases contribute to a single monotonically
-    increasing progress stream (useful for multiple evaluators in one run).
-    """
-
-    def __init__(
-        self,
-        sink: Any,
-        *,
-        phase_idx: int,
-        n_phases: int,
-        phase_total: Optional[int],
-        phase_label: str,
-        global_total: Optional[int] = None,
-        phase_offset: Optional[int] = None,
-        equalize_mode: bool = False,
-    ):
-        self._sink = sink
-        self.phase_idx = max(0, int(phase_idx))
-        self.n_phases = max(1, int(n_phases))
-        self.phase_total = phase_total if isinstance(phase_total, int) and phase_total > 0 else None
-        self.phase_label = phase_label or "phase"
-        self.global_total_override = global_total if isinstance(global_total, int) and global_total > 0 else None
-        self.phase_offset = phase_offset if isinstance(phase_offset, int) and phase_offset >= 0 else None
-        self.equalize_mode = bool(equalize_mode)
-        self._phase_total_seen: Optional[int] = None
-
-    def _call(self, method: str, *args: Any) -> None:
-        if self._sink is None:
-            return
-        fn = getattr(self._sink, method, None)
-        if fn is None:
-            return
-        try:
-            fn(*args)
-        except Exception:
-            logging.debug("Progress sink call failed", exc_info=True)
-
-    def on_throughput(self, metrics: Dict[str, Any]) -> None:
-        """Forward throughput updates without phase scaling."""
-        self._call("on_throughput", metrics)
-
-    def _effective_phase_total(self, total: Optional[int]) -> Optional[int]:
-        if self.phase_total is not None:
-            return self.phase_total
-        if isinstance(total, int) and total > 0:
-            return total
-        return self._phase_total_seen
-
-    def _global_total(self, total: Optional[int]) -> Optional[int]:
-        if self.global_total_override is not None:
-            return self.global_total_override
-        phase_total = self._effective_phase_total(total)
-        if phase_total is None:
-            return None
-        return int(phase_total) * int(self.n_phases)
-
-    def _global_completed(self, completed: int, total: Optional[int]) -> Optional[int]:
-        phase_total = self._effective_phase_total(total)
-        if phase_total is None:
-            return None
-        bounded = min(max(int(completed), 0), int(phase_total))
-        if self.equalize_mode and self.global_total_override is not None:
-            frac = float(bounded) / float(phase_total) if phase_total else 0.0
-            base = float(self.phase_offset or 0)
-            return base + frac
-        if self.phase_offset is not None:
-            return self.phase_offset + bounded
-        return int(self.phase_idx) * int(phase_total) + bounded
-
-    def on_start(self, total: Optional[int], desc: str) -> None:
-        if isinstance(total, int) and total > 0:
-            self._phase_total_seen = int(total)
-        global_total = self._global_total(total)
-        # Only emit a real start once to avoid resetting sinks between phases.
-        if self.phase_idx == 0:
-            self._call("on_start", global_total, desc)
-        else:
-            global_completed = self._global_completed(0, total)
-            if global_completed is not None:
-                self._call("on_update", global_completed, global_total, desc)
-
-    def on_update(self, completed: int, total: Optional[int], desc: str) -> None:
-        if isinstance(total, int) and total > 0:
-            self._phase_total_seen = int(total)
-        global_total = self._global_total(total)
-        global_completed = self._global_completed(completed, total)
-        if global_completed is None:
-            self._call("on_update", completed, total, desc)
-        else:
-            self._call("on_update", global_completed, global_total, desc)
-
-    def on_done(self, completed: int, total: Optional[int], desc: str) -> None:
-        if isinstance(total, int) and total > 0:
-            self._phase_total_seen = int(total)
-        global_total = self._global_total(total)
-        # Mark this phase completed.
-        global_completed = self._global_completed(self._effective_phase_total(total) or completed, total)
-        if global_completed is not None:
-            self._call("on_update", global_completed, global_total, desc)
-        # Only emit "done" at the end of the final phase.
-        if self.phase_idx == self.n_phases - 1:
-            self._call("on_done", global_total or completed, global_total, desc)
-
-
 def run_from_config(
     config: Union[str, Dict[str, Any], ConfigLoader],
     *,
     dry_run: bool = False,
     output_dir: Optional[Union[str, Path]] = None,
     run_id: Optional[str] = None,
-    progress_sink: Optional[Any] = None,
-    on_progress_start: Optional[Callable[[Optional[int], str], None]] = None,
-    on_progress_update: Optional[Callable[[int, Optional[int], str], None]] = None,
-    on_progress_done: Optional[Callable[[int, Optional[int], str], None]] = None,
-    progress_equalize_evaluators: Optional[bool] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Execute an end-to-end diagnosis based on the provided configuration.
@@ -303,7 +96,6 @@ def run_from_config(
         Evaluation results dictionary (or None for dry_run).
     """
     cfg = _as_config_loader(config)
-    cfg_progress_equalize = cfg.get("progress_equalize_evaluators")
     model_cfg_raw = cfg.get("model", {}) or {}
     models_cfg = model_cfg_raw if isinstance(model_cfg_raw, list) else [model_cfg_raw]
     dataset_cfg = cfg.get("dataset", {}) or {}
@@ -396,34 +188,15 @@ def run_from_config(
     if dry_run:
         return None
 
-    # No global throttling; progress driven by sample counts.
-
-    # Persist results with run id/timestamp and folder structure
     resolved_output_dir = Path(output_dir) if output_dir is not None else Path("results")
-    resolved_progress_equalize = (
-        progress_equalize_evaluators
-        if progress_equalize_evaluators is not None
-        else cfg_progress_equalize
-    )
     run_identifier = run_id
     if not run_identifier:
-        raise ValueError("A run id is required. Provide --run-id or run_id parameter.")
+        run_identifier = "run_" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     timestamp = datetime.now(timezone.utc).isoformat()
     run_dir = resolved_output_dir / run_identifier
     run_dir.mkdir(parents=True, exist_ok=True)
 
     all_models_results = []
-
-    # Prepare progress sink/callbacks.
-    effective_sink = progress_sink
-    progress_adapter = _PipelineProgressAdapter(effective_sink) if effective_sink is not None else None
-    sink_for_callbacks = progress_adapter or effective_sink
-    throughput_tracker = TokenThroughputTracker(sink=sink_for_callbacks)
-    try:
-        # Initialize UI with a zero-rate snapshot before any tokens flow.
-        throughput_tracker.emit_zero_rate(status="running")
-    except Exception:
-        logging.debug("Initial throughput zero emission failed", exc_info=True)
 
     model_summaries = [
         str(m.get("run_name") or m.get("model_name") or m.get("generation") or m.get("name") or "model")
@@ -457,39 +230,6 @@ def run_from_config(
     )
     _emit_log(_run_summary_message())
 
-    # Only use explicit callbacks when provided; sink methods remain available.
-    cb_start = on_progress_start
-    cb_update = on_progress_update
-    cb_done = on_progress_done
-
-    def _safe_call(fn, *args):
-        if fn is None:
-            return
-        try:
-            fn(*args)
-        except Exception:
-            logging.debug("Progress callback failed", exc_info=True)
-
-    def _emit_start(total: Optional[int], desc: str) -> None:
-        _safe_call(cb_start, total, desc)
-        target_sink = sink_for_callbacks
-        if target_sink is not None and hasattr(target_sink, "on_start"):
-            _safe_call(getattr(target_sink, "on_start"), total, desc)
-
-    def _emit_update(completed: int, total: Optional[int], desc: str) -> None:
-        _safe_call(cb_update, completed, total, desc)
-        target_sink = sink_for_callbacks
-        if target_sink is not None and hasattr(target_sink, "on_update"):
-            _safe_call(getattr(target_sink, "on_update"), completed, total, desc)
-
-    def _emit_done(completed: int, total: Optional[int], desc: str) -> None:
-        _safe_call(cb_done, completed, total, desc)
-        target_sink = sink_for_callbacks
-        if target_sink is not None and hasattr(target_sink, "on_done"):
-            _safe_call(getattr(target_sink, "on_done"), completed, total, desc)
-
-    _emit_log("Preparing dataset (warming up caches and computing totals)")
-    _emit_update(0, None, "preparing dataset")
     # Prepare evaluators (support multiple evaluators run linearly).
     evaluator_specs: List[Dict[str, Any]] = []
     for idx, e_cfg in enumerate(evaluator_cfgs):
@@ -521,7 +261,7 @@ def run_from_config(
         )
 
     # Load datasets lazily per evaluator (cache identical configs).
-    dataset_cache: Dict[str, Tuple[Any, Optional[int]]] = {}
+    dataset_cache: Dict[str, Any] = {}
 
     def _dataset_key(ds_cfg: Dict[str, Any]) -> str:
         try:
@@ -529,95 +269,18 @@ def run_from_config(
         except Exception:
             return str(ds_cfg)
 
-    def _load_dataset(ds_cfg: Dict[str, Any]) -> Tuple[Any, Optional[int]]:
+    def _load_dataset(ds_cfg: Dict[str, Any]) -> Any:
         key = _dataset_key(ds_cfg)
         if key in dataset_cache:
             return dataset_cache[key]
         ds_name = ds_cfg.get("name")
         ds_kwargs = {k: v for k, v in ds_cfg.items() if k != "name"}
         ds = dataset_registry.get_dataset(ds_name, **ds_kwargs)
-        ds_total = infer_total_items(ds)
-        dataset_cache[key] = (ds, ds_total)
-        return ds, ds_total
+        dataset_cache[key] = ds
+        return ds
 
-    def _estimate_spin_total(
-        dataset: Any,
-        evaluator_cfg: Dict[str, Any],
-        model_obj: Any,
-    ) -> Optional[int]:
-        """
-        Best-effort progress total for SPIN.
-
-        SPIN progress updates once per (layer, batch) pair, so total steps are:
-        num_layers * (len(dataset1) + len(dataset2)).
-        """
-        try:
-            hf_model = getattr(model_obj, "model", model_obj)
-            num_layers = get_num_hidden_layers(hf_model)
-            if not isinstance(num_layers, int) or num_layers <= 0:
-                return None
-            if not isinstance(dataset, dict):
-                return None
-            # spin/csv_bundle returns {"paths": {"dataset1": ..., "dataset2": ...}}
-            if "paths" in dataset:
-                nsamples = evaluator_cfg.get("nsamples") or evaluator_cfg.get("samples")
-                if isinstance(nsamples, int) and nsamples > 0:
-                    return num_layers * (int(nsamples) * 2)
-                return None
-            d1_key = evaluator_cfg.get("dataset1_key") or "dataset1"
-            d2_key = evaluator_cfg.get("dataset2_key") or "dataset2"
-            d1 = dataset.get(d1_key)
-            d2 = dataset.get(d2_key)
-            if isinstance(d1, list) and isinstance(d2, list):
-                return num_layers * (len(d1) + len(d2))
-        except Exception:
-            return None
-        return None
-
-    # Pre-load datasets to establish global totals for progress scaling.
-    phase_totals: List[Optional[int]] = []
-    for spec in evaluator_specs:
-        _, ds_total = _load_dataset(spec["dataset_cfg"])
-        phase_totals.append(ds_total if isinstance(ds_total, int) and ds_total > 0 else None)
-
-    all_totals_known = all(t is not None for t in phase_totals) and len(phase_totals) > 0
-
-    # Equalize mode: each evaluator gets the same weight (1 unit) when totals are known.
-    if all_totals_known and resolved_progress_equalize:
-        global_eval_total: Optional[int] = len(phase_totals)
-        phase_offsets: List[Optional[int]] = list(range(len(phase_totals)))
-    else:
-        global_eval_total = sum(t for t in phase_totals if t is not None) if all_totals_known else None
-        if all_totals_known:
-            offset = 0
-            phase_offsets = []
-            for t in phase_totals:
-                phase_offsets.append(offset)
-                offset += int(t) if t is not None else 0
-        else:
-            phase_offsets = [None] * len(phase_totals)
-
-    # Prime progress with the first evaluator's dataset for "dataset ready" feedback.
     n_evaluators = len(evaluator_specs)
     first_dataset_cfg = evaluator_specs[0]["dataset_cfg"]
-    try:
-        first_dataset, first_dataset_total = _load_dataset(first_dataset_cfg)
-        if progress_adapter is not None:
-            progress_adapter.set_eval_total(global_eval_total or first_dataset_total)
-        if first_dataset_total is not None:
-            logging.info("Loaded dataset '%s' with %d examples", first_dataset_cfg.get("name"), first_dataset_total)
-            _emit_log(
-                f"Dataset ready: {first_dataset_cfg.get('name')} "
-                f"({first_dataset_total} examples, phases={n_evaluators})"
-            )
-            _emit_update(0, first_dataset_total, "dataset ready")
-        else:
-            _emit_log(f"Dataset ready: {first_dataset_cfg.get('name')} (example count unknown)")
-            _emit_update(0, None, "dataset ready")
-    except Exception:
-        raise
-
-    n_evaluators = len(evaluator_specs)
     for m_cfg in models_cfg:
         model_key = m_cfg.get("generation") or m_cfg.get("name")
         model_name = m_cfg.get("model_name")
@@ -627,13 +290,7 @@ def run_from_config(
             f"[Model] Loading {model_label} "
             f"(registry_key={model_key}, model_name={model_name or 'unknown'}, evaluators={n_evaluators})"
         )
-        if progress_adapter is not None:
-            progress_adapter.mark_model_preload(f"loading model {model_label}")
-        _emit_update(0, None, f"loading model {model_label}")
         model = model_registry.get_model(model_key, model_name=model_name, **model_kwargs)
-        if progress_adapter is not None:
-            progress_adapter.mark_model_loaded(f"model ready {model_label}")
-        _emit_update(0, None, f"model ready {model_label}")
         _emit_log(f"[Model] Ready {model_label} (registry_key={model_key})")
 
         model_id = m_cfg.get("run_name") or model_name or model_key
@@ -650,113 +307,17 @@ def run_from_config(
             evaluator_dir = model_dir / e_id
             evaluator_dir.mkdir(parents=True, exist_ok=True)
 
-            dataset_for_eval, dataset_total = _load_dataset(spec["dataset_cfg"])
-            if e_type == "spin":
-                spin_total = _estimate_spin_total(dataset_for_eval, spec.get("config") or {}, model)
-                if spin_total is not None:
-                    dataset_total = spin_total
-            if progress_adapter is not None:
-                progress_adapter.set_eval_total(global_eval_total or dataset_total)
-
-            phase_sink = (
-                _PhaseProgressAdapter(
-                    sink_for_callbacks,
-                    phase_idx=e_idx,
-                    n_phases=n_evaluators,
-                    phase_total=dataset_total if isinstance(dataset_total, int) and dataset_total > 0 else None,
-                    phase_label=e_id,
-                    global_total=global_eval_total,
-                    phase_offset=phase_offsets[e_idx],
-                    equalize_mode=bool(resolved_progress_equalize and global_eval_total is not None),
-                )
-                if sink_for_callbacks is not None and n_evaluators > 1
-                else sink_for_callbacks
-            )
-
-            # Wrap user callbacks so their progress is also monotonic across phases.
-            phase_total = dataset_total if isinstance(dataset_total, int) and dataset_total > 0 else None
-            if global_eval_total is not None:
-                # In equalize mode, totals are number of evaluators; otherwise sum of samples.
-                phase_global_total = global_eval_total
-            else:
-                phase_global_total = (phase_total * n_evaluators) if (phase_total and n_evaluators > 1) else None
-
-            def _phase_start(total: Optional[int], desc: str, _idx: int = e_idx) -> None:
-                if cb_start is None:
-                    return
-                if phase_total is None or n_evaluators <= 1:
-                    _safe_call(cb_start, total, desc)
-                    return
-                if _idx == 0:
-                    _safe_call(cb_start, phase_global_total, desc)
-
-            def _phase_update(
-                completed: int,
-                total: Optional[int],
-                desc: str,
-                _idx: int = e_idx,
-                _phase_total: Optional[int] = phase_total,
-                _global_total: Optional[int] = phase_global_total,
-            ) -> None:
-                if cb_update is None:
-                    return
-                if _phase_total is None or n_evaluators <= 1:
-                    _safe_call(cb_update, completed, total, desc)
-                    return
-                if global_eval_total is not None and resolved_progress_equalize:
-                    frac = float(completed) / float(_phase_total) if _phase_total else 0.0
-                    offset = float(phase_offsets[_idx] or 0)
-                    global_completed = offset + frac
-                    _safe_call(cb_update, global_completed, _global_total, desc)
-                elif global_eval_total is not None:
-                    bounded = min(max(int(completed), 0), int(_phase_total))
-                    offset = phase_offsets[_idx] or 0
-                    global_completed = offset + bounded
-                    _safe_call(cb_update, global_completed, _global_total, desc)
-                else:
-                    bounded = min(max(int(completed), 0), int(_phase_total))
-                    global_completed = int(_idx) * int(_phase_total) + bounded
-                    _safe_call(cb_update, global_completed, _global_total, desc)
-
-            def _phase_done(
-                completed: int,
-                total: Optional[int],
-                desc: str,
-                _idx: int = e_idx,
-                _global_total: Optional[int] = phase_global_total,
-            ) -> None:
-                if cb_done is None:
-                    return
-                if phase_total is None or n_evaluators <= 1:
-                    _safe_call(cb_done, completed, total, desc)
-                    return
-                if global_eval_total is not None and resolved_progress_equalize:
-                    if _idx == n_evaluators - 1:
-                        _safe_call(cb_done, _global_total, _global_total, desc)
-                elif global_eval_total is not None:
-                    if _idx == n_evaluators - 1:
-                        _safe_call(cb_done, _global_total, _global_total, desc)
-                else:
-                    if _idx == n_evaluators - 1:
-                        _safe_call(cb_done, _global_total, _global_total, desc)
+            dataset_for_eval = _load_dataset(spec["dataset_cfg"])
 
             _emit_log(
                 f"[Eval:{e_id}] Start on {model_label} "
-                f"(type={e_type}, dataset={spec['dataset_cfg'].get('name')}, total={dataset_total or 'unknown'})"
+                f"(type={e_type}, dataset={spec['dataset_cfg'].get('name')})"
             )
-            # Avoid resetting progress when multiple evaluators share one stream.
-            if n_evaluators <= 1 or e_idx == 0 or progress_adapter is None:
-                _emit_update(0, dataset_total, f"running evaluator {e_id} on {model_label}")
 
             raw_results = evaluator.evaluate(
                 model,
                 dataset_for_eval,
                 output_dir=str(evaluator_dir.resolve()),
-                progress_sink=phase_sink,
-                on_progress_start=_phase_start if cb_start is not None else None,
-                on_progress_update=_phase_update if cb_update is not None else None,
-                on_progress_done=_phase_done if cb_done is not None else None,
-                throughput_tracker=throughput_tracker,
             )
 
             evaluator_payload = {
@@ -837,12 +398,6 @@ def run_from_config(
                 f"[Eval:{e_id}] Finished on {model_label} "
                 f"(results saved to {evaluator_results_path.relative_to(run_dir)})"
             )
-            # Reset throughput to zero after each evaluator to avoid stale rates.
-            try:
-                throughput_tracker.emit_zero_rate(status="running")
-            except Exception:
-                logging.debug("Throughput idle emission failed", exc_info=True)
-            # Best-effort CUDA cleanup between evaluators (keeps model weights loaded).
             _maybe_cuda_cleanup()
 
         per_model_payload = {
@@ -877,23 +432,17 @@ def run_from_config(
             }
         )
 
-    throughput_summary = throughput_tracker.snapshot()
-
     status_text = (
         f"Run {run_identifier} completed successfully on {', '.join(dataset_summaries)} "
-        f"using evaluators {', '.join(evaluator_summaries)} and models {', '.join(model_summaries)}. "
-        f"Processed approximately {throughput_summary.get('tokens', 0)} tokens "
-        f"(avg {round(throughput_summary.get('tokens_per_second_avg', 0.0), 2)} tokens/sec)."
+        f"using evaluators {', '.join(evaluator_summaries)} and models {', '.join(model_summaries)}."
     )
 
-    # Run-level summary
     wrapped = {
         "run_id": run_identifier,
         "timestamp": timestamp,
         "dataset": {"name": first_dataset_cfg.get("name"), "config": first_dataset_cfg},
         "evaluators": [{"id": s["id"], "type": s["type"], "config": s.get("config") or {}} for s in evaluator_specs],
         "models": all_models_results,
-        "throughput": throughput_summary,
         "status_text": status_text,
     }
 
@@ -929,20 +478,8 @@ def run_from_config(
 
     _emit_log(
         f"Run {run_identifier} completed | "
-        f"models={len(all_models_results)} | evaluators={n_evaluators} | "
-        f"throughput tokens={throughput_summary.get('tokens')} "
-        f"tps_avg={round(throughput_summary.get('tokens_per_second_avg', 0), 2)}"
+        f"models={len(all_models_results)} | evaluators={n_evaluators}"
     )
-
-    throughput_tracker.finalize(status="complete")
-    try:
-        # Emit an explicit zero-rate payload at the very end to clear UI displays.
-        throughput_tracker.emit_zero_rate(status="complete")
-    except Exception:
-        logging.debug("Final throughput idle emission failed", exc_info=True)
-    target_sink = sink_for_callbacks
-    if target_sink is not None and hasattr(target_sink, "on_result"):
-        _safe_call(getattr(target_sink, "on_result"), wrapped)
 
     return wrapped
 
@@ -972,7 +509,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--run-id",
         default=None,
-        help="Optional run identifier for organizing output directories.",
+        help="Run identifier for output directory (default: run_<timestamp>).",
     )
     return parser.parse_args()
 

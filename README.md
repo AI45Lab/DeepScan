@@ -38,7 +38,6 @@ A flexible and extensible framework for diagnosing Large Language Models (LLMs) 
   - **MI-Peaks**: Track information evolution in reasoning representations during generation based on mutual information
   - **SPIN**: Analyze potential conflicts between safety objectives such as fairness and privacy
 - **📝 Customizable Summarizers**: Aggregate and format evaluation results for different benchmarks
-- **📈 Progress Tracking**: Built-in progress callbacks for monitoring long-running evaluators
 - **🔌 Plugin Architecture**: Easy to extend with custom evaluators and summarizers
 - **💻 CLI Support**: Run evaluations directly from command line without writing code
 
@@ -90,13 +89,9 @@ from deepscan import run_from_config
 # YAML/JSON or dict with model/dataset/evaluator sections
 results = run_from_config("examples/config.tellme.yaml")
 
-# With progress callbacks
-def on_progress(completed, total, desc):
-    print(f"{completed}/{total}: {desc}")
-
+# With output directory and run ID
 results = run_from_config(
     "examples/config.tellme.yaml",
-    on_progress_update=on_progress,
     output_dir="results",
     run_id="my_experiment",
 )
@@ -107,7 +102,7 @@ results = run_from_config(
 # ✅ Basic usage
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
 
-# 🏷️ With custom run ID
+# 🏷️ With custom run ID (optional; default is run_<timestamp>)
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
 
 # 🔍 Dry run (validate config without loading model/dataset)
@@ -341,12 +336,10 @@ evaluator_registry = get_evaluator_registry()
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
 
-# Create evaluator from registry
+# Create evaluator from registry (pass options via config=)
 evaluator = evaluator_registry.create_evaluator(
     "tellme",
-    batch_size=4,
-    layer_ratio=0.6666,
-    token_position=-1,
+    config=dict(batch_size=4, layer_ratio=0.6666, token_position=-1),
 )
 
 # Get model and dataset
@@ -357,31 +350,7 @@ dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path
 # results = evaluator.evaluate(model, dataset, ...)
 ```
 
-### 4. Progress Callbacks 📈
-
-Monitor evaluation progress with callbacks:
-
-```python
-def on_start(total: Optional[int], description: str):
-    print(f"Starting: {description} ({total} items)")
-
-def on_update(completed: int, total: Optional[int], description: str):
-    if total:
-        pct = (completed / total) * 100
-        print(f"Progress: {completed}/{total} ({pct:.1f}%) - {description}")
-
-def on_done(completed: int, total: Optional[int], description: str):
-    print(f"Completed: {description}")
-
-results = run_from_config(
-    "config.yaml",
-    on_progress_start=on_start,
-    on_progress_update=on_update,
-    on_progress_done=on_done,
-)
-```
-
-### 5. Create Custom Evaluators 🛠️
+### 4. Create Custom Evaluators 🛠️
 
 ```python
 from deepscan.evaluators.base import BaseEvaluator
@@ -398,11 +367,11 @@ class CustomEvaluator(BaseEvaluator):
 registry = get_evaluator_registry()
 registry.register_evaluator("custom_eval")(CustomEvaluator)
 
-# Use it in config or programmatically
-evaluator = registry.create_evaluator("custom_eval", param1=value1)
+# Use it in config or programmatically (pass options via config=)
+evaluator = registry.create_evaluator("custom_eval", config=dict(param1=value1))
 ```
 
-### 6. Summarize Results 📊
+### 5. Summarize Results 📊
 
 ```python
 from deepscan.summarizers.base import BaseSummarizer
@@ -498,7 +467,7 @@ registry.register_summarizer("my_summarizer")(MySummarizer)
 ## 📋 Example Configuration File
 
 ```yaml
-# 📝 Minimal TELLME-style config (see `examples/config.tellme.yaml` for the full version)
+# 📝 Minimal TELLME-style config (see `examples/config.tellme.yaml`; see `examples/` for multi-evaluator configs)
 model:
   generation: qwen3
   model_name: Qwen3-8B
@@ -524,14 +493,12 @@ evaluator:
 
 See the `examples/` directory for complete usage examples:
 
-**🔍 Evaluators:**
-- `config.tellme.yaml`: TELLME disentanglement metrics
-- `config.xboundary.yaml`: X-Boundary safety analysis
-- `config.mi_peaks.yaml`: MI-Peaks introspection
-- `config.spin.yaml`: SPIN evaluation
+**🔍 Single-evaluator:**
+- `config.tellme.yaml`: Minimal TELLME disentanglement metrics
 
-**🔗 Combined Configs:**
-- `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: Multiple evaluators on same model
+**🔗 Multi-evaluator (same model, multiple benchmarks):**
+- `config.x-boundary.tellme.spin.mi-peaks.qwen2.5-7b-instruct.yaml`: TELLME, X-Boundary, SPIN, and MI-Peaks with Qwen2.5-7B-Instruct
+- `config.xboundary-llama3.3-70b-instruct.yaml`: Same suite with Llama 3.3 70B Instruct
 
 ## 💻 Development
 

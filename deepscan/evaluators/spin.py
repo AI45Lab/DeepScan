@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from deepscan.evaluators.base import BaseEvaluator
-from deepscan.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
 from deepscan.utils.model_introspection import get_num_hidden_layers
 
 logger = logging.getLogger(__name__)
@@ -236,12 +235,7 @@ class SpinEvaluator(BaseEvaluator):
         # For large models, keeping (|W|*|grad|) for every linear layer will grow VRAM
         # until OOM. Instead, we keep only the top-q candidate indices per module
         # (small) and the module size for later aggregation.
-        def _compute_candidate_registry(
-            batches: List[Tuple[Any, Any]],
-            *,
-            progress=None,
-            throughput_tracker: Optional[TokenThroughputTracker] = None,
-        ) -> Dict[str, Any]:
+        def _compute_candidate_registry(batches: List[Tuple[Any, Any]]) -> Dict[str, Any]:
             model_wrapped = make_act(hf_model, verbose=False)
             model_wrapped.eval()
             num_hidden_layers = get_num_hidden_layers(model_wrapped) or 0
@@ -262,10 +256,6 @@ class SpinEvaluator(BaseEvaluator):
                         module.base.zero_grad()
 
                 for inp, tar in batches:
-                    if progress is not None:
-                        progress.update(1)
-                    if throughput_tracker is not None:
-                        throughput_tracker.add_batch(inp)
                     inp, tar = inp.to(device), tar.to(device)
                     model_wrapped.zero_grad()
                     with no_act_recording(model_wrapped):
@@ -313,23 +303,8 @@ class SpinEvaluator(BaseEvaluator):
             model_wrapped.zero_grad()
             return registry
 
-        total_steps = int(get_num_hidden_layers(hf_model) or 0) * (len(batches_1) + len(batches_2))
-        progress_sink = kwargs.get("progress_sink")
-        with self.progress(
-            dataset=None,
-            total=total_steps,
-            desc="SPIN diagnosis (importance scoring)",
-            progress_sink=progress_sink,
-            on_start=kwargs.get("on_progress_start"),
-            on_update=kwargs.get("on_progress_update"),
-            on_done=kwargs.get("on_progress_done"),
-        ) as progress:
-            imp_1 = _compute_candidate_registry(
-                batches_1, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
-            )
-            imp_2 = _compute_candidate_registry(
-                batches_2, progress=progress, throughput_tracker=kwargs.get("throughput_tracker")
-            )
+        imp_1 = _compute_candidate_registry(batches_1)
+        imp_2 = _compute_candidate_registry(batches_2)
 
         results: Dict[str, Any] = {
             "evaluator": {"id": "spin", "type": "spin"},

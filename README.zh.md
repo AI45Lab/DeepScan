@@ -38,7 +38,6 @@
   - **MI-Peaks**：基于互信息追踪生成中推理表征信息演化
   - **SPIN**：分析公平、隐私等安全目标间的潜在冲突
 - **📝 可定制Summarizer**：聚合和格式化不同基准的评估结果
-- **📈 进度跟踪**：内置进度回调，监控长时间运行的Evaluator
 - **🔌 插件架构**：易于扩展自定义Evaluator和Summarizer
 - **💻 CLI 支持**：无需编写代码即可从命令行运行评估
 
@@ -90,13 +89,9 @@ from deepscan import run_from_config
 # YAML/JSON 或包含 model/dataset/evaluator 部分的字典
 results = run_from_config("examples/config.tellme.yaml")
 
-# 带进度回调
-def on_progress(completed, total, desc):
-    print(f"{completed}/{total}: {desc}")
-
+# 指定输出目录和运行 ID
 results = run_from_config(
     "examples/config.tellme.yaml",
-    on_progress_update=on_progress,
     output_dir="results",
     run_id="my_experiment",
 )
@@ -107,7 +102,7 @@ results = run_from_config(
 # ✅ 基本用法
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs
 
-# 🏷️ 使用自定义运行 ID
+# 🏷️ 使用自定义运行 ID（可选；默认为 run_<时间戳>）
 python -m deepscan.run --config examples/config.tellme.yaml --output-dir runs --run-id experiment_001
 
 # 🔍 干运行（验证配置而不加载模型/数据集）
@@ -337,12 +332,10 @@ evaluator_registry = get_evaluator_registry()
 model_registry = get_model_registry()
 dataset_registry = get_dataset_registry()
 
-# 从注册表创建评估器
+# 从注册表创建评估器（通过 config= 传递参数）
 evaluator = evaluator_registry.create_evaluator(
     "tellme",
-    batch_size=4,
-    layer_ratio=0.6666,
-    token_position=-1,
+    config=dict(batch_size=4, layer_ratio=0.6666, token_position=-1),
 )
 
 # 获取模型和数据集
@@ -353,31 +346,7 @@ dataset = dataset_registry.get_dataset("tellme/beaver_tails_filtered", test_path
 # results = evaluator.evaluate(model, dataset, ...)
 ```
 
-### 4. 进度回调 📈
-
-使用回调监控评估进度：
-
-```python
-def on_start(total: Optional[int], description: str):
-    print(f"开始: {description} ({total} 项)")
-
-def on_update(completed: int, total: Optional[int], description: str):
-    if total:
-        pct = (completed / total) * 100
-        print(f"进度: {completed}/{total} ({pct:.1f}%) - {description}")
-
-def on_done(completed: int, total: Optional[int], description: str):
-    print(f"完成: {description}")
-
-results = run_from_config(
-    "config.yaml",
-    on_progress_start=on_start,
-    on_progress_update=on_update,
-    on_progress_done=on_done,
-)
-```
-
-### 5. 创建自定义评估器 🛠️
+### 4. 创建自定义评估器 🛠️
 
 ```python
 from deepscan.evaluators.base import BaseEvaluator
@@ -394,11 +363,11 @@ class CustomEvaluator(BaseEvaluator):
 registry = get_evaluator_registry()
 registry.register_evaluator("custom_eval")(CustomEvaluator)
 
-# 在配置中或以编程方式使用
-evaluator = registry.create_evaluator("custom_eval", param1=value1)
+# 在配置中或以编程方式使用（通过 config= 传递参数）
+evaluator = registry.create_evaluator("custom_eval", config=dict(param1=value1))
 ```
 
-### 6. 汇总结果 📊
+### 5. 汇总结果 📊
 
 ```python
 from deepscan.summarizers.base import BaseSummarizer
@@ -494,7 +463,7 @@ registry.register_summarizer("my_summarizer")(MySummarizer)
 ## 📋 配置示例文件
 
 ```yaml
-# 📝 最小 TELLME 风格配置（查看 `examples/config.tellme.yaml` 了解完整版本）
+# 📝 最小 TELLME 风格配置（见 `examples/config.tellme.yaml`；多评估器配置见 `examples/`）
 model:
   generation: qwen3
   model_name: Qwen3-8B
@@ -520,14 +489,12 @@ evaluator:
 
 查看 `examples/` 目录了解完整使用示例：
 
-**🔍 评估器：**
-- `config.tellme.yaml`: TELLME 解耦度指标
-- `config.xboundary.yaml`: X-Boundary 安全分析
-- `config.mi_peaks.yaml`: MI-Peaks 内省
-- `config.spin.yaml`: SPIN 评估
+**🔍 单评估器：**
+- `config.tellme.yaml`: 最小 TELLME 解耦度指标配置
 
-**🔗 组合配置：**
-- `config.xboundary.tellme-qwen2.5-7b-instruct.yaml`: 同一模型上的多个评估器
+**🔗 多评估器（同一模型、多基准）：**
+- `config.x-boundary.tellme.spin.mi-peaks.qwen2.5-7b-instruct.yaml`: TELLME、X-Boundary、SPIN、MI-Peaks 与 Qwen2.5-7B-Instruct
+- `config.xboundary-llama3.3-70b-instruct.yaml`: 同上评估套件，使用 Llama 3.3 70B Instruct
 
 ## 💻 开发
 

@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from deepscan.evaluators.base import BaseEvaluator
-from deepscan.utils.throughput import TokenThroughputTracker, count_tokens_from_batch
-from deepscan.utils.progress import ProgressReporter
 from deepscan.utils.model_introspection import get_num_hidden_layers
 
 logger = logging.getLogger(__name__)
@@ -170,8 +168,6 @@ def _extract_hidden_embeddings(
     dataloader: Any,
     target_layers: List[int],
     device: Any,
-    progress: Optional[ProgressReporter] = None,
-    throughput_tracker: Optional[TokenThroughputTracker] = None,
 ) -> Tuple[Dict[int, Any], Any]:
     torch_mod = _require_torch()
     np = _require_numpy()
@@ -205,10 +201,6 @@ def _extract_hidden_embeddings(
                 layer_buffers[layer_idx].append(pooled.detach().cpu().numpy())
 
             all_labels.extend(labels)
-            if throughput_tracker is not None:
-                throughput_tracker.add_batch(batch)
-            if progress is not None:
-                progress.update(len(labels))
 
     final: Dict[int, Any] = {}
     for layer_idx, buffers in layer_buffers.items():
@@ -339,24 +331,12 @@ class XBoundaryEvaluator(BaseEvaluator):
         target_layers = _resolve_target_layers(model.model, cfg)
         device = _infer_input_device(model.model)
 
-        progress = self.progress(
-            dataset=items,
-            total=len(ds),
-            desc="X-Boundary evaluation",
-            progress_sink=kwargs.get("progress_sink"),
-            on_start=kwargs.get("on_progress_start"),
-            on_update=kwargs.get("on_progress_update"),
-            on_done=kwargs.get("on_progress_done"),
+        layer_embeddings, labels = _extract_hidden_embeddings(
+            model=model.model,
+            dataloader=dataloader,
+            target_layers=target_layers,
+            device=device,
         )
-        with progress:
-            layer_embeddings, labels = _extract_hidden_embeddings(
-                model=model.model,
-                dataloader=dataloader,
-                target_layers=target_layers,
-                device=device,
-                progress=progress,
-                throughput_tracker=kwargs.get("throughput_tracker"),
-            )
 
         metrics_by_layer: Dict[int, Any] = {}
         tsne_paths: Dict[int, Optional[str]] = {}

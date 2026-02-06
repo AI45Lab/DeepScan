@@ -72,6 +72,6 @@ cache/
 .DS_Store
 ._dataset
 
-# utils
-tools/
-utils/
+# top-level utils/tools only (deepscan/utils/ is part of the package)
+/tools/
+/utils/

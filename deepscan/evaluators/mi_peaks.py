@@ -286,7 +286,6 @@ def _collect_activations(
     token_pos: int = -1,
     mode: str = "generate",
     max_new_tokens: int = 512,
-    progress: Optional[Any] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """
     Mirrors MI-Peaks `collect_activations` in `src/runners/activation_pipeline.py`.
@@ -305,8 +304,6 @@ def _collect_activations(
     }
 
     for idx, text in enumerate(texts):
-        if progress is not None:
-            progress.update(1)
         input_ids = tokenizer.encode(text, return_tensors="pt")
         try:
             # For non-sharded models, ensure inputs are on the model's entry device.
@@ -352,7 +349,6 @@ def _calculate_mi(
     sigma: float = 50.0,
     ktype: str = "gaussian",
     reuse_cache: bool = True,
-    progress: Optional[Any] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """
     Mirrors MI-Peaks `calculate_mi` in `src/runners/mi_pipeline.py` (including resume).
@@ -376,8 +372,6 @@ def _calculate_mi(
         }
 
     for idx in range(num_samples):
-        if progress is not None:
-            progress.update(1)
         if final_mi_dict[idx].get("total_tokens", -1) > 0:
             continue
 
@@ -596,36 +590,24 @@ class MiPeaksEvaluator(BaseEvaluator):
             acts = _slice_indexed_dict(loaded_acts, run_n)
             gt_acts = _slice_indexed_dict(loaded_gt, run_n)
         else:
-            total = len(problems) + len(solutions)
-            with self.progress(
-                dataset=None,
-                total=total,
-                desc="MI-Peaks diagnosis (activation extraction)",
-                progress_sink=kwargs.get("progress_sink"),
-                on_start=kwargs.get("on_progress_start"),
-                on_update=kwargs.get("on_progress_update"),
-                on_done=kwargs.get("on_progress_done"),
-            ) as progress:
-                acts = _collect_activations(
-                    problems,
-                    tokenizer,
-                    hf_model,
-                    layers,
-                    token_pos=int(cfg.token_position),
-                    mode="generate",
-                    max_new_tokens=int(cfg.max_new_tokens),
-                    progress=progress,
-                )
-                gt_acts = _collect_activations(
-                    solutions,
-                    tokenizer,
-                    hf_model,
-                    layers,
-                    token_pos=int(cfg.token_position),
-                    mode="forward",
-                    max_new_tokens=int(cfg.max_new_tokens),
-                    progress=progress,
-                )
+            acts = _collect_activations(
+                problems,
+                tokenizer,
+                hf_model,
+                layers,
+                token_pos=int(cfg.token_position),
+                mode="generate",
+                max_new_tokens=int(cfg.max_new_tokens),
+            )
+            gt_acts = _collect_activations(
+                solutions,
+                tokenizer,
+                hf_model,
+                layers,
+                token_pos=int(cfg.token_position),
+                mode="forward",
+                max_new_tokens=int(cfg.max_new_tokens),
+            )
 
             torch_mod.save(acts, acts_reason_path)
             torch_mod.save(gt_acts, acts_gt_path)
@@ -654,26 +636,16 @@ class MiPeaksEvaluator(BaseEvaluator):
         if _is_complete_mi(loaded_mi, run_n):
             mi_tensor = loaded_mi
         else:
-            with self.progress(
-                dataset=None,
-                total=len(problems),
-                desc="MI-Peaks diagnosis (MI computation)",
-                progress_sink=kwargs.get("progress_sink"),
-                on_start=kwargs.get("on_progress_start"),
-                on_update=kwargs.get("on_progress_update"),
-                on_done=kwargs.get("on_progress_done"),
-            ) as progress:
-                mi_tensor = _calculate_mi(
-                    acts,
-                    gt_acts,
-                    layers=layers,
-                    num_samples=len(problems),
-                    save_path=mi_tensor_path,
-                    sigma=float(cfg.sigma),
-                    ktype=str(cfg.ktype),
-                    reuse_cache=bool(cfg.reuse_cache),
-                    progress=progress,
-                )
+            mi_tensor = _calculate_mi(
+                acts,
+                gt_acts,
+                layers=layers,
+                num_samples=len(problems),
+                save_path=mi_tensor_path,
+                sigma=float(cfg.sigma),
+                ktype=str(cfg.ktype),
+                reuse_cache=bool(cfg.reuse_cache),
+            )
 
         # 3) Derive diagnosis metrics (peaks + mean trajectory)
         target_layer = layers[0]
