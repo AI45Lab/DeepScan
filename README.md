@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="logo-dark.svg">
     <source media="(prefers-color-scheme: light)" srcset="logo-light.svg">
-    <img alt="DeepScan Logo" src="logo-dark.svg" width="200">
+    <img alt="DeepScan Logo" src="logo-dark.svg" width="280">
   </picture>
 
   <br>
