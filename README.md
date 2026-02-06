@@ -10,23 +10,15 @@
   <h1>Diagnostic Framework for LLMs and MLLMs</h1>
 
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
-<a href="https://ai45.shlab.org.cn/safety-entry">
-    <img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat">
-  </a>
-  <!-- <a href="#">
+  <a href="https://ai45.shlab.org.cn/safety-entry"><img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat"></a>
+  <a href="#"><img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF"></a>
+  <a href="#quick-start"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white"></a>
+
+<!-- <a href="#">
     <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000">
   </a> -->
-  <a href="#">
-    <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
-  </a>
-  <a href="#quick-start">
-    <img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white">
-  </a>
-
-
 </div>
-<br>
-<br>
+<div style="height: 30px;"></div>
 
 A flexible and extensible framework for diagnosing Large Language Models (LLMs) and Multimodal Large Language Models (MLLMs). Designed around the "Register → Configure → Execute → Summarize" workflow, this framework provides unified Runner, Evaluator, and Summarizer abstractions for quickly building or customizing diagnostic pipelines.
 

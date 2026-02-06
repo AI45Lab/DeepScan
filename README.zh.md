@@ -10,25 +10,15 @@
   <h1>面向LLMs与MLLMs的诊断框架</h1>
 
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
+  <a href="https://ai45.shlab.org.cn/safety-entry"><img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat"></a>
+  <a href="#"><img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF"></a>
+  <a href="#quick-start"><img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white"></a>
 
-  <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
-<a href="https://ai45.shlab.org.cn/safety-entry">
-    <img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat">
-  </a>
-  <!-- <a href="#">
+<!-- <a href="#">
     <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000">
   </a> -->
-  <a href="#">
-    <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late%20Feb)&color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
-  </a>
-  <a href="#quick-start">
-    <img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white">
-  </a>
-
 </div>
-
-<br>
-<br>
+<div style="height: 30px;"></div>
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
