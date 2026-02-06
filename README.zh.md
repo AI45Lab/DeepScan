@@ -7,24 +7,28 @@
 
   <br>
   
-  <h1>DeepScan: Diagnostic Framework for LLMs</h1>
+  <h1>面向LLMs与MLLMs的诊断框架</h1>
 
   <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
 
-  <p>
-    <a href="https://ai45.shlab.org.cn/safety-entry"><img alt="AI45"
-      src="https://img.shields.io/badge/AI45-Homepage-0066CC?style=flat-square"></a>
-    <!--    <a href="https://github.com/your-org/DeepScan"><img alt="GitHub" -->
-      <!-- src="https://img.shields.io/badge/GitHub-181717?style=flat-square&logo=github&logoColor=white"></a> -->
-    <a href="https://huggingface.co/your-org/DeepScan"><img alt="Hugging Face"
-      src="https://img.shields.io/badge/Hugging%20Face-FFD21E?style=flat-square&logo=huggingface&logoColor=black"></a>
-    <a href="https://arxiv.org/abs/XXXX.XXXXX"><img alt="arXiv"
-      src="https://img.shields.io/badge/arXiv-b31b1b?style=flat-square&logo=arxiv&logoColor=white"></a>
-    <a href="https://deepscan.readthedocs.io"><img alt="Documentation"
-      src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white"></a>
-  </p>
+  <!-- <p><b>DeepScan: Diagnostic Framework for LLMs</b></p> -->
+<a href="https://ai45.shlab.org.cn/safety-entry">
+    <img alt="Homepage" src="https://img.shields.io/static/v1?label=&message=%F0%9F%8C%90%20Homepage&color=2F81F7&style=flat">
+  </a>
+  <!-- <a href="#">
+    <img alt="Hugging Face" src="https://img.shields.io/static/v1?label=&message=Hugging%20Face&color=FFCC00&style=flat&logo=huggingface&logoColor=000000"> -->
+  </a>
+  <a href="#">
+    <img alt="Technical Report (arXiv)" src="https://img.shields.io/static/v1?label=&message=Report%20(late Feb) &color=B31B1B&style=flat&logo=arxiv&logoColor=FFFFFF">
+  </a>
+  <a href="#quick-start">
+    <img alt="Documentation" src="https://img.shields.io/badge/Documentation-8CA1AF?style=flat-square&logo=readthedocs&logoColor=white">
+  </a>
+
 </div>
 
+<br>
+<br>
 
 面向大语言模型与多模态大模型的可扩展诊断框架，围绕"注册 → 配置 → 执行 → 汇总"设计，提供统一的 Runner、评估器与汇总器抽象，便于快速搭建或定制诊断流水线。
 
@@ -79,7 +83,7 @@ pip install -e ".[mi_peaks]"     # MI-Peaks 评估器
 pip install -e ".[all]"           # 所有评估器依赖 (tellme + xboundary + mi_peaks)
 
 ```
-
+<a id="quick-start"></a>
 ## 🚀 快速上手
 
 ### 🎯 从配置文件端到端运行（任何评估器）
